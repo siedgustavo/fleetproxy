@@ -4,6 +4,9 @@ API **OpenAI-compatible** (`/v1/chat/completions` + `/v1/models`) sobre [opencod
 tus suscripciones de LLM disponibles como endpoint OpenAI, sin que nadie escriba código de proveedor.
 Con `token` en `fleetproxy.json` (o `FLEETPROXY_TOKEN`) las rutas `/v1/*` exigen
 `Authorization: Bearer <token>`, como OpenAI.
+En Docker/cluster, `url` (o `FLEETPROXY_URL`) hace que los OAuth del motor vuelvan a
+`<url>/auth/callback`: fleetproxy reenvía ese path al proceso de login (puerto fijo,
+`oauth.callbackPort`), sin depender de un `127.0.0.1` que el browser no ve.
 
 ```
 cliente OpenAI ──HTTP──▶ fleetproxy ──HTTP /api/*──▶ motor opencode ──▶ módulos de la comunidad ──▶ LLM

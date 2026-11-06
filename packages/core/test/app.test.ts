@@ -138,3 +138,39 @@ describe("API key (token de serve)", () => {
     expect((await makeApp().request("/v1/models")).status).toBe(200);
   });
 });
+
+describe("proxy de OAuth (/auth/callback)", () => {
+  test("sin oauthProxy la ruta no existe", async () => {
+    expect((await makeApp().request("/auth/callback?code=x")).status).toBe(404);
+  });
+
+  test("reenvía query y method al server de login y devuelve su respuesta", async () => {
+    let seen: { url: string; method: string } | null = null;
+    const app = createApp({
+      bridge: new OpencodeBridge(fakeApi()),
+      oauthProxy: async (req) => {
+        seen = { url: req.url, method: req.method };
+        return new Response("<html>listo</html>", { status: 200, headers: { "content-type": "text/html" } });
+      },
+    });
+    const res = await app.request("/auth/callback?code=abc&state=xyz", { method: "POST", body: "k=v" });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("<html>listo</html>");
+    expect(seen!.url).toContain("/auth/callback?code=abc&state=xyz");
+    expect(seen!.method).toBe("POST");
+  });
+
+  test("502 con shape OpenAI cuando no hay ningún login escuchando", async () => {
+    const app = createApp({
+      bridge: new OpencodeBridge(fakeApi()),
+      oauthProxy: async () => {
+        throw new TypeError("ECONNREFUSED");
+      },
+    });
+    const res = await app.request("/auth/callback");
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: { message: string; code: string } };
+    expect(body.error.code).toBe("oauth_callback_unavailable");
+    expect(body.error.message).toContain("fleetproxy login");
+  });
+});

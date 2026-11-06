@@ -9,6 +9,13 @@ export interface CreateAppOptions {
    * abierto (dev local). /health queda siempre abierta (probes del cluster).
    */
   apiToken?: string;
+  /**
+   * Proxy del callback OAuth (deploy headless): recibe /auth/callback del
+   * browser y lo reenvía al proceso de login del motor (127.0.0.1:<puerto
+   * fijo>). Sin proxy definido la ruta no existe. No va tras el token:
+   * la seguridad del flujo la dan state+PKCE del provider.
+   */
+  oauthProxy?: (req: Request) => Promise<Response>;
 }
 
 function openAIError(message: string, type = "invalid_request_error", code?: string) {
@@ -82,10 +89,28 @@ function sseResponse(params: {
   });
 }
 
-export function createApp({ bridge, apiToken }: CreateAppOptions): Hono {
+export function createApp({ bridge, apiToken, oauthProxy }: CreateAppOptions): Hono {
   const app = new Hono();
 
   app.get("/health", (c) => c.json({ ok: true }));
+
+  if (oauthProxy) {
+    app.all("/auth/callback", async (c) => {
+      try {
+        return await oauthProxy(c.req.raw);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        return c.json(
+          openAIError(
+            `OAuth callback sin destino (${msg}). ¿Hay un "fleetproxy login <provider>" esperando en el callbackPort?`,
+            "api_error",
+            "oauth_callback_unavailable",
+          ),
+          502,
+        );
+      }
+    });
+  }
 
   const requireToken = async (c: Context, next: () => Promise<void>) => {
     if (!apiToken) return next();
