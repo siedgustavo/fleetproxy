@@ -3,8 +3,10 @@ import { OpencodeApiClient, OpencodeHttpError } from "../src/client";
 import { ModelNotFoundError, OpencodeBridge, UpstreamError } from "../src/bridge";
 
 interface FakeOptions {
-  promptCalls?: Array<{ text: string }>;
+  promptCalls?: Array<{ text?: string; prompt?: { text?: string } }>;
   promptFails?: boolean;
+  /** imita al server 1.19.x: rechaza el body plano pidiendo la clave "prompt" */
+  promptRequiresNested?: boolean;
   assistantText?: string;
   idleOutcome?: string;
   sessionTokens?: { input: number; output: number };
@@ -30,7 +32,11 @@ export function fakeApi(options: FakeOptions = {}): OpencodeApiClient {
         return { data: { id: "ses_1" } };
       }
       if (method === "POST" && path === "/api/session/ses_1/prompt") {
-        options.promptCalls?.push(body as { text: string });
+        const promptBody = body as { text?: string; prompt?: { text?: string } };
+        if (options.promptRequiresNested && promptBody.prompt === undefined) {
+          throw new OpencodeHttpError(400, 'POST prompt → 400: Missing key\n  at ["prompt"]');
+        }
+        options.promptCalls?.push(promptBody);
         if (options.promptFails) throw new OpencodeHttpError(400, 'POST prompt → 400: Missing key ["text"]');
         return { data: { id: "msg_1" } };
       }
@@ -123,6 +129,20 @@ describe("OpencodeBridge.chat", () => {
     expect(
       bridge.chat({ model: "fixture/echo-1", messages: [{ role: "user", content: "x" }] }),
     ).rejects.toBeInstanceOf(UpstreamError);
+  });
+
+  test("server 1.x: fallback flat→nested en el body del prompt", async () => {
+    const calls: NonNullable<FakeOptions["promptCalls"]> = [];
+    const bridge = new OpencodeBridge(fakeApi({ promptCalls: calls, promptRequiresNested: true }));
+    const result = await bridge.chat({ model: "fixture/echo-1", messages: [{ role: "user", content: "hola" }] });
+    expect(result.text).toBe("echo: último turno");
+    // el intento plano rechazado no llega a registrarse; el reintentado es anidado
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.prompt?.text).toBe("hola");
+    // segunda vez va directo en nested (formato recordado)
+    await bridge.chat({ model: "fixture/echo-1", messages: [{ role: "user", content: "de nuevo" }] });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.prompt?.text).toBe("de nuevo");
   });
 
   test("turno con outcome error → UpstreamError con detalle", async () => {

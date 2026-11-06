@@ -75,6 +75,11 @@ export class OpencodeBridge {
   #completionTimeoutMs: number;
   #completionPollMs: number;
   #catalog: { at: number; models: CatalogModel[] } | null = null;
+  /**
+   * opencode 2.x espera el PromptInput PLANO ({text}); el 1.19.x de npm exige
+   * {prompt:{text}}. Probamos flat una vez y recordamos el formato que funcionó.
+   */
+  #promptBodyFormat: "unknown" | "flat" | "nested" = "unknown";
 
   constructor(api: OpencodeApiClient, options: BridgeOptions = {}) {
     this.#api = api;
@@ -172,8 +177,8 @@ export class OpencodeBridge {
       const sessionID = created?.data?.id;
       if (!sessionID) throw new UpstreamError("opencode no devolvió id de sesión");
 
-      // El server 2.2.x espera el PromptInput PLANO en el body.
-      await this.#api.request("POST", `/api/session/${sessionID}/prompt`, { text: promptText });
+      // Body según versión del server (ver #promptBodyFormat).
+      await this.#sendPrompt(sessionID, promptText);
 
       const messages = await this.#awaitTurnCompletion(sessionID);
       const assistant = messages.find((m) => m?.type === "assistant");
@@ -193,6 +198,23 @@ export class OpencodeBridge {
     } catch (error) {
       throw this.#mapError(error);
     }
+  }
+
+  /** POST /prompt con fallback flat→nested entre líneas de versión del server. */
+  async #sendPrompt(sessionID: string, text: string): Promise<void> {
+    if (this.#promptBodyFormat !== "nested") {
+      try {
+        await this.#api.request("POST", `/api/session/${sessionID}/prompt`, { text });
+        this.#promptBodyFormat = "flat";
+        return;
+      } catch (error) {
+        const missingPrompt =
+          error instanceof OpencodeHttpError && /Missing key[\s\S]*prompt/.test(error.message);
+        if (!missingPrompt) throw error;
+        this.#promptBodyFormat = "nested";
+      }
+    }
+    await this.#api.request("POST", `/api/session/${sessionID}/prompt`, { prompt: { text } });
   }
 
   /**

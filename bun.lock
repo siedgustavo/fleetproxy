@@ -33,6 +33,9 @@
     "packages/fleet": {
       "name": "@fleetproxy/fleet",
       "version": "0.0.1",
+      "dependencies": {
+        "opencode-ai": "^1.19.5",
+      },
     },
   },
   "packages": {
@@ -49,6 +52,32 @@
     "bun-types": ["bun-types@1.4.4", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-yjrJh5oGX7mMPKGd19YXyIjmEuj4G4zNC30bs7PM9Az7NQ3ndF3j6hbeRdvJTRQEhJ/FYQwW0a2moweEi2hMxQ=="],
 
     "hono": ["hono@4.13.16", "", {}, "sha512-AOLOEhvrV+iH92xXCnFr/5+3KjPKcI3xP63XJtX5spAnkznPdHijlIsUTpi7/9EhWqrTCekw5c5zh1K+YsVw7A=="],
+
+    "opencode-ai": ["opencode-ai@1.19.5", "", { "optionalDependencies": { "opencode-darwin-arm64": "1.19.5", "opencode-darwin-x64": "1.19.5", "opencode-darwin-x64-baseline": "1.19.5", "opencode-linux-arm64": "1.19.5", "opencode-linux-arm64-musl": "1.19.5", "opencode-linux-x64": "1.19.5", "opencode-linux-x64-baseline": "1.19.5", "opencode-linux-x64-baseline-musl": "1.19.5", "opencode-linux-x64-musl": "1.19.5", "opencode-windows-arm64": "1.19.5", "opencode-windows-x64": "1.19.5", "opencode-windows-x64-baseline": "1.19.5" }, "os": [ "linux", "win32", "darwin", ], "cpu": [ "x64", "arm64", ], "hasInstallScript": true, "bin": { "opencode": "bin/opencode.exe" } }, "sha512-tEqMvQahfhdDj8vceYpXtoIrvjPXm5XRfetWnPN5YISueU7adNx9JcUA3zZ+2GKuDVgDpGdQe1ZLtCZDjqodvA=="],
+
+    "opencode-darwin-arm64": ["opencode-darwin-arm64@1.19.5", "", { "os": "darwin", "cpu": "arm64" }, "sha512-0MbSbKkmwVHtgP31GJyyECe6QVy4T7W4Wp7s2TsmXHTPPyf01ne3dWSX97X9dkNK28Lc6kt+zMPQUP/9GgDLZg=="],
+
+    "opencode-darwin-x64": ["opencode-darwin-x64@1.19.5", "", { "os": "darwin", "cpu": "x64" }, "sha512-+DO7IMPTCrX12UJXnL4pL3ckcwR6BR6f6tA9QIlVQ5nZx66T5U7FRMJT4n5rsOnJxLM/pZ2vfX1G8vrnvXO8FA=="],
+
+    "opencode-darwin-x64-baseline": ["opencode-darwin-x64-baseline@1.19.5", "", { "os": "darwin", "cpu": "x64" }, "sha512-rftvAoHBWPVkvwBLr3SQWRZvcIjyMTN0SlhMzlt+lgvoQBBGNEmZQ/7sS/Ux1oHsJV/++UDuLVso4n5L95YD5Q=="],
+
+    "opencode-linux-arm64": ["opencode-linux-arm64@1.19.5", "", { "os": "linux", "cpu": "arm64" }, "sha512-u2HFRI6v1nNMVKiV34An8XrGBxJeZ+RCg2tYu3SqlGODKqKsr5RoEbaX1tnsfGb+rETh9AJVX9kS8dSZXPufsA=="],
+
+    "opencode-linux-arm64-musl": ["opencode-linux-arm64-musl@1.19.5", "", { "os": "linux", "cpu": "arm64", "libc": "musl" }, "sha512-YxvpVPJ/jeevV93DVRiuOVbhkoJAuwQUadPDHPaw65aZkAKZ6OE7XySwCS+Rjlhzt7fPryisvAOjUtZkwfMBuQ=="],
+
+    "opencode-linux-x64": ["opencode-linux-x64@1.19.5", "", { "os": "linux", "cpu": "x64" }, "sha512-i1qh7VooLGML9xX6ud93y0JA8j/1aPeDYRKjsmYXrJX1TjIWHgBBMkEbEJPZthpWbsJg//XfBgR6Kb7+NPaJiQ=="],
+
+    "opencode-linux-x64-baseline": ["opencode-linux-x64-baseline@1.19.5", "", { "os": "linux", "cpu": "x64" }, "sha512-9kA+st3XXtCXMPx5f3Ld1u19uoHTO2u2Btt8a2cqhJ4GIqVbD1mXLevj3LHFEmtuQoFGk+UstGnl38sCqXj5sQ=="],
+
+    "opencode-linux-x64-baseline-musl": ["opencode-linux-x64-baseline-musl@1.19.5", "", { "os": "linux", "cpu": "x64", "libc": "musl" }, "sha512-kwt6hmTaI6nujjAzdAkXv3j2rDzXNOMfMk8Jf8bwacHtwUl8CWA2psDVg3nWyb4zByAa6F1jSIlmHCPHBq1K/Q=="],
+
+    "opencode-linux-x64-musl": ["opencode-linux-x64-musl@1.19.5", "", { "os": "linux", "cpu": "x64", "libc": "musl" }, "sha512-y6nUbH3ViajN37KaVVy0/KnWv/i48Bx5QPv9Ul9ONJya1ossV7CHVb+ZNFc61M5GqlVtjCvZV7T0eBMqhJG7mg=="],
+
+    "opencode-windows-arm64": ["opencode-windows-arm64@1.19.5", "", { "os": "win32", "cpu": "arm64" }, "sha512-aySF/MDji5KO3I5yl9Ec4g8kW/QIx4Jj5FXwBhh/FrDu0w6L8HAOGH7cyjFb3t8TW7pxRkH3Ei3rfkWAE7cScw=="],
+
+    "opencode-windows-x64": ["opencode-windows-x64@1.19.5", "", { "os": "win32", "cpu": "x64" }, "sha512-xCVbrA8A/qQTAdBIKyhK5tx3/mcq18yF82Mi8phry0MJb2631nnnpxF9m6FFfWAVHyer4qFGrO7hbWXesHQ1Gg=="],
+
+    "opencode-windows-x64-baseline": ["opencode-windows-x64-baseline@1.19.5", "", { "os": "win32", "cpu": "x64" }, "sha512-yRHN+TsfLjfLmdQVAVWqTGfGP1yq8YtUFy9Jw33XhlPIp77slBdCJrj2PC4amuEl6BJtaIQDhDFbpJ8+a5z7Qw=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 

@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { spawnMember, memberFromUrl, type FleetMember } from "@fleetproxy/fleet";
+import { isOpencodeAvailable, spawnMember, memberFromUrl, type FleetMember } from "@fleetproxy/fleet";
 import { OpencodeApiClient } from "../src/client";
 import { OpencodeBridge } from "../src/bridge";
 import { createApp } from "../src/app";
 
-const hasBinary = Bun.spawnSync(["opencode", "--version"]).success;
+// binario en PATH o empaquetado (dependencia opencode-ai de @fleetproxy/fleet)
+const hasBinary = isOpencodeAvailable();
 const liveChat = process.env.FLEETPROXY_LIVE_CHAT === "1";
 
 describe("integration: opencode serve real", () => {
