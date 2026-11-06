@@ -1,6 +1,3 @@
-import { createOpencodeClient } from "@opencode-ai/sdk/v2";
-import type { OpencodeClient } from "@opencode-ai/sdk/v2";
-
 /**
  * Un miembro de la flota es una instancia de `opencode serve` accesible por HTTP.
  * flota = N instancias (cada una con su perfil/credenciales) o instancias
@@ -98,11 +95,8 @@ async function waitForListeningUrl(proc: ServeSubprocess, timeoutMs: number): Pr
   }
 }
 
-export function memberClient(member: FleetMember): OpencodeClient {
-  return createOpencodeClient({
-    baseUrl: member.url,
-    headers: member.password ? { Authorization: basicAuth(member.password) } : undefined,
-  });
+export function memberAuthHeader(member: FleetMember): Record<string, string> | undefined {
+  return member.password ? { Authorization: basicAuth(member.password) } : undefined;
 }
 
 export class Fleet {

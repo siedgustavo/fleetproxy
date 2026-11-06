@@ -8,7 +8,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@opencode-ai/sdk": "^1.19.5",
     "hono": "^4.13.16"
   },
   "devDependencies": {

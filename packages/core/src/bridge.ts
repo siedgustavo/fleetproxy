@@ -1,4 +1,4 @@
-import type { OpencodeClient } from "@opencode-ai/sdk/v2";
+import { OpencodeApiClient, OpencodeHttpError } from "./client";
 
 export interface CatalogModel {
   /** "providerID/modelID", el id OpenAI-compatible */
@@ -33,6 +33,13 @@ export class UpstreamError extends Error {
   }
 }
 
+interface ServerMessage {
+  type?: string;
+  outcome?: string;
+  time?: { created?: number; completed?: number };
+  content?: Array<{ type?: string; text?: string }>;
+}
+
 function textOf(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -46,78 +53,67 @@ function textOf(content: unknown): string {
   return "";
 }
 
-function errorMessage(error: unknown): string | undefined {
-  if (!error) return undefined;
-  const e = error as { message?: string; _tag?: string };
-  return e.message ?? e._tag ?? JSON.stringify(error);
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Extrae el texto del último mensaje assistant del historial v2. */
-function lastAssistantText(messages: unknown[]): string | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i] as {
-      role?: string;
-      info?: { role?: string; error?: { message?: string; name?: string } };
-      parts?: Array<{ type?: string; text?: string }>;
-    };
-    const role = message?.info?.role ?? message?.role;
-    if (role !== "assistant") continue;
-    const text = (message.parts ?? [])
-      .filter((p) => p?.type === "text")
-      .map((p) => String(p.text ?? ""))
-      .join("");
-    if (text) return text;
-    const err = message.info?.error?.message ?? message.info?.error?.name;
-    if (err) throw new UpstreamError(`el asistente respondió con error: ${err}`);
-  }
-  return null;
+export interface BridgeOptions {
+  catalogTtlMs?: number;
+  /** máx a esperar el mensaje idle del turno */
+  completionTimeoutMs?: number;
+  completionPollMs?: number;
 }
 
 /**
- * Puerta de entrada a una instancia de opencode (API v2 del server: /api/*).
+ * Puerta de entrada a una instancia de opencode (API v2 del server, /api/*).
  * Todo lo que sabe fleetproxy de proveedores viene de acá: opencode carga los
  * plugins, nosotros solo preguntamos catálogo y pedimos chats vía su API.
  */
 export class OpencodeBridge {
-  #client: OpencodeClient;
+  #api: OpencodeApiClient;
   #catalogTtlMs: number;
+  #completionTimeoutMs: number;
+  #completionPollMs: number;
   #catalog: { at: number; models: CatalogModel[] } | null = null;
 
-  constructor(client: OpencodeClient, options: { catalogTtlMs?: number } = {}) {
-    this.#client = client;
+  constructor(api: OpencodeApiClient, options: BridgeOptions = {}) {
+    this.#api = api;
     this.#catalogTtlMs = options.catalogTtlMs ?? 30_000;
+    this.#completionTimeoutMs = options.completionTimeoutMs ?? 120_000;
+    this.#completionPollMs = options.completionPollMs ?? 500;
   }
 
   async catalog(forceRefresh = false): Promise<CatalogModel[]> {
     if (!forceRefresh && this.#catalog && Date.now() - this.#catalog.at < this.#catalogTtlMs) {
       return this.#catalog.models;
     }
-    const [providers, models] = await Promise.all([this.#client.v2.provider.list(), this.#client.v2.model.list()]);
-    if (providers.error && models.error) {
-      throw new UpstreamError(
-        `opencode /api/provider y /api/model fallaron: ${errorMessage(providers.error) ?? errorMessage(models.error)}`,
-      );
+    try {
+      const [providers, models] = await Promise.all([
+        this.#api.request<{ data?: Array<{ id?: string }> }>("GET", "/api/provider"),
+        this.#api.request<{ data?: Array<Record<string, unknown>> }>("GET", "/api/model"),
+      ]);
+      const providerIds = new Set((providers?.data ?? []).map((p) => String(p.id)));
+      const catalog: CatalogModel[] = [];
+      for (const model of models?.data ?? []) {
+        const providerID = String((model.providerID as string | undefined) ?? "");
+        const modelID = String((model.modelID as string | undefined) ?? (model.id as string | undefined) ?? "");
+        if (!providerID || !modelID) continue;
+        // Solo providers "activos" según opencode (si la lista está vacía, no filtramos).
+        if (providerIds.size > 0 && !providerIds.has(providerID)) continue;
+        const limit = model.limit as { context?: number } | undefined;
+        catalog.push({
+          id: `${providerID}/${modelID}`,
+          providerID,
+          modelID,
+          name: (model.name as string | undefined) ?? modelID,
+          contextWindow: limit?.context,
+        });
+      }
+      this.#catalog = { at: Date.now(), models: catalog };
+      return catalog;
+    } catch (error) {
+      throw this.#mapError(error);
     }
-    const providerIds = new Set((providers.data?.data ?? []).map((p) => String(p.id)));
-    const rawModels = models.data?.data ?? [];
-    const catalog: CatalogModel[] = [];
-    for (const model of rawModels) {
-      const providerID = String(model.providerID ?? "");
-      const modelID = String((model as { modelID?: string }).modelID ?? model.id ?? "");
-      if (!providerID || !modelID) continue;
-      // Solo providers "activos" según opencode (si la lista está vacía, no filtramos).
-      if (providerIds.size > 0 && !providerIds.has(providerID)) continue;
-      const info = model as { name?: string; limit?: { context?: number } };
-      catalog.push({
-        id: `${providerID}/${modelID}`,
-        providerID,
-        modelID,
-        name: info.name ?? modelID,
-        contextWindow: info.limit?.context,
-      });
-    }
-    this.#catalog = { at: Date.now(), models: catalog };
-    return catalog;
   }
 
   async resolve(rawModel: string): Promise<{ providerID: string; modelID: string }> {
@@ -169,36 +165,68 @@ export class OpencodeBridge {
     if (transcript.length > 0) sections.push(`Conversación previa (transcripción):\n${transcript.join("\n")}`);
     const promptText = [...sections, lastUser].filter((s) => s && s.length > 0).join("\n\n");
 
-    const created = await this.#client.v2.session.create({ model: { id: modelID, providerID } });
-    // El cuerpo 200 de /api/session es { data: SessionV2Info } → doble unwrap.
-    const sessionID = created.data?.data?.id;
-    if (!sessionID) {
-      throw new UpstreamError(`opencode session.create() falló: ${errorMessage(created.error) ?? "sin data"}`);
-    }
+    try {
+      const created = await this.#api.request<{ data?: { id?: string } }>("POST", "/api/session", {
+        model: { id: modelID, providerID },
+      });
+      const sessionID = created?.data?.id;
+      if (!sessionID) throw new UpstreamError("opencode no devolvió id de sesión");
 
-    const admitted = await this.#client.v2.session.prompt({ sessionID, prompt: { text: promptText } });
-    if (admitted.error) {
-      throw new UpstreamError(`prompt rechazado: ${errorMessage(admitted.error)}`);
-    }
+      // El server 2.2.x espera el PromptInput PLANO en el body.
+      await this.#api.request("POST", `/api/session/${sessionID}/prompt`, { text: promptText });
 
-    const waited = await this.#client.v2.session.wait({ sessionID });
-    if (waited.error) {
-      throw new UpstreamError(`session.wait falló: ${errorMessage(waited.error)}`);
-    }
+      const messages = await this.#awaitTurnCompletion(sessionID);
+      const assistant = messages.find((m) => m?.type === "assistant");
+      const assistantText = (assistant?.content ?? [])
+        .filter((c) => c?.type === "text")
+        .map((c) => String(c.text ?? ""))
+        .join("");
+      if (!assistantText) throw new UpstreamError(`el asistente no dejó texto en la sesión ${sessionID}`);
 
-    const history = await this.#client.v2.session.messages({ sessionID });
-    if (history.error) {
-      throw new UpstreamError(`session.messages falló: ${errorMessage(history.error)}`);
+      const session = await this.#api.request<{ data?: { tokens?: { input?: number; output?: number } } }>(
+        "GET",
+        `/api/session/${sessionID}`,
+      );
+      const input = session?.data?.tokens?.input ?? 0;
+      const output = session?.data?.tokens?.output ?? 0;
+      return { text: assistantText, usage: { input, output, total: input + output } };
+    } catch (error) {
+      throw this.#mapError(error);
     }
-    const text = lastAssistantText(history.data?.data ?? []);
-    if (text === null) {
-      throw new UpstreamError(`el asistente no dejó texto en la sesión ${sessionID}`);
-    }
+  }
 
-    const session = await this.#client.v2.session.get({ sessionID });
-    const tokens = session.data?.data?.tokens ?? { input: 0, output: 0 };
-    const input = tokens.input ?? 0;
-    const output = tokens.output ?? 0;
-    return { text, usage: { input, output, total: input + output } };
+  /**
+   * Polling de /message hasta que aparezca el mensaje "idle" del turno
+   * (señal de término en opencode 2.2.x; /wait no existe). El array viene
+   * newest-first.
+   */
+  async #awaitTurnCompletion(sessionID: string): Promise<ServerMessage[]> {
+    const deadline = Date.now() + this.#completionTimeoutMs;
+    for (;;) {
+      const page = await this.#api.request<{ data?: ServerMessage[] }>(
+        "GET",
+        `/api/session/${sessionID}/message`,
+      );
+      const messages = page?.data ?? [];
+      const newest = messages[0];
+      if (newest?.type === "idle") {
+        if (newest.outcome && newest.outcome !== "succeeded") {
+          throw new UpstreamError(`el turno terminó con outcome "${newest.outcome}"`);
+        }
+        return messages;
+      }
+      // Fallback: assistant ya completado sin mensaje idle (variantes del server).
+      if (newest?.type === "assistant" && newest.time?.completed) return messages;
+      if (Date.now() > deadline) {
+        throw new UpstreamError(`timeout esperando respuesta del server (sesión ${sessionID})`);
+      }
+      await sleep(this.#completionPollMs);
+    }
+  }
+
+  #mapError(error: unknown): Error {
+    if (error instanceof UpstreamError || error instanceof ModelNotFoundError) return error;
+    if (error instanceof OpencodeHttpError) return new UpstreamError(error.message);
+    return new UpstreamError(error instanceof Error ? error.message : String(error));
   }
 }

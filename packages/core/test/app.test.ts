@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { OpencodeBridge } from "../src";
 import { createApp } from "../src/app";
-import { fakeClient } from "./bridge.test";
+import { fakeApi } from "./bridge.test";
 
 function makeApp() {
-  return createApp({ bridge: new OpencodeBridge(fakeClient()) });
+  return createApp({ bridge: new OpencodeBridge(fakeApi()) });
 }
 
 describe("GET /v1/models", () => {
@@ -73,7 +73,7 @@ describe("POST /v1/chat/completions", () => {
 
   test("error de opencode → 502 upstream_error", async () => {
     const app = createApp({
-      bridge: new OpencodeBridge(fakeClient({ assistantText: "", assistantError: { message: "cuota agotada" } })),
+      bridge: new OpencodeBridge(fakeApi({ assistantText: "", idleOutcome: "error" })),
     });
     const res = await app.request("/v1/chat/completions", {
       method: "POST",
@@ -82,7 +82,7 @@ describe("POST /v1/chat/completions", () => {
     });
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error: { message: string } };
-    expect(body.error.message).toContain("cuota agotada");
+    expect(body.error.message).toContain("outcome");
   });
 
   test("body inválido → 400", async () => {

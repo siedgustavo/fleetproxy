@@ -6,8 +6,5 @@
   "types": "src/index.ts",
   "exports": {
     ".": "./src/index.ts"
-  },
-  "dependencies": {
-    "@opencode-ai/sdk": "^1.19.5"
   }
 }

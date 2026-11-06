@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { memberClient, spawnMember, type FleetMember } from "@fleetproxy/fleet";
-import { memberFromUrl } from "@fleetproxy/fleet";
+import { spawnMember, memberFromUrl, type FleetMember } from "@fleetproxy/fleet";
+import { OpencodeApiClient } from "../src/client";
 import { OpencodeBridge } from "../src/bridge";
 import { createApp } from "../src/app";
 
@@ -15,7 +15,8 @@ describe("integration: opencode serve real", () => {
     const url = process.env.FLEETPROXY_OPENCODE_URL;
     member = url ? memberFromUrl(url) : hasBinary ? await spawnMember() : undefined;
     if (!member) return;
-    app = createApp({ bridge: new OpencodeBridge(memberClient(member)) });
+    const client = new OpencodeApiClient({ baseUrl: member.url, password: member.password });
+    app = createApp({ bridge: new OpencodeBridge(client) });
   }, 90_000);
 
   afterAll(async () => {

@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createApp, OpencodeBridge } from "@fleetproxy/core";
-import { memberClient, memberFromUrl, spawnMember, type FleetMember } from "@fleetproxy/fleet";
+import { createApp, OpencodeApiClient, OpencodeBridge } from "@fleetproxy/core";
+import { memberFromUrl, spawnMember, type FleetMember } from "@fleetproxy/fleet";
 
 interface Config {
   port?: number;
@@ -33,6 +33,10 @@ async function attachOrSpawn(config: Config): Promise<{ member: FleetMember; spa
   return { member: await spawnMember(), spawned: true };
 }
 
+function bridgeFor(member: FleetMember): OpencodeBridge {
+  return new OpencodeBridge(new OpencodeApiClient({ baseUrl: member.url, password: member.password }));
+}
+
 function parsePort(argv: string[], config: Config): number {
   const flag = argv.indexOf("--port");
   if (flag >= 0 && argv[flag + 1]) return Number(argv[flag + 1]);
@@ -48,7 +52,7 @@ async function main(): Promise<void> {
   if (command === "serve") {
     const port = parsePort(argv, config);
     const { member, spawned } = await attachOrSpawn(config);
-    const bridge = new OpencodeBridge(memberClient(member));
+    const bridge = bridgeFor(member);
     const app = createApp({ bridge });
     const server = Bun.serve({ port, fetch: app.fetch });
     const models = await bridge.catalog().catch(() => []);
@@ -60,7 +64,7 @@ async function main(): Promise<void> {
 
   if (command === "models") {
     const { member, spawned } = await attachOrSpawn(config);
-    const bridge = new OpencodeBridge(memberClient(member));
+    const bridge = bridgeFor(member);
     const models = await bridge.catalog();
     for (const model of models) console.log(model.id);
     if (models.length === 0) console.log("(sin modelos: conectate a opencode con algún provider autenticado)");

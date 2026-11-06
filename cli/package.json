@@ -7,7 +7,6 @@
   },
   "dependencies": {
     "@fleetproxy/core": "workspace:*",
-    "@fleetproxy/fleet": "workspace:*",
-    "@opencode-ai/sdk": "^1.19.5"
+    "@fleetproxy/fleet": "workspace:*"
   }
 }

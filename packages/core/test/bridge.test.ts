@@ -1,83 +1,64 @@
 import { describe, expect, test } from "bun:test";
-import type { OpencodeClient } from "@opencode-ai/sdk/v2";
+import { OpencodeApiClient, OpencodeHttpError } from "../src/client";
 import { ModelNotFoundError, OpencodeBridge, UpstreamError } from "../src/bridge";
 
-export interface PromptCall {
-  sessionID: string;
-  prompt?: { text: string };
-}
-
 interface FakeOptions {
-  promptCalls?: PromptCall[];
-  promptError?: unknown;
+  promptCalls?: Array<{ text: string }>;
+  promptFails?: boolean;
   assistantText?: string;
-  assistantError?: { message?: string; name?: string };
+  idleOutcome?: string;
   sessionTokens?: { input: number; output: number };
 }
 
-export function fakeClient(options: FakeOptions = {}): OpencodeClient {
-  const sessionID = "ses_1";
-  const v2 = {
-    provider: {
-      list: async () => ({
-        data: { location: {}, data: [{ id: "github-copilot" }, { id: "fixture" }] },
-        error: undefined,
-      }),
-    },
-    model: {
-      list: async () => ({
-        data: {
-          location: {},
+/** Fake estructural del OpencodeApiClient ruteando method+path. */
+export function fakeApi(options: FakeOptions = {}): OpencodeApiClient {
+  const api = {
+    request: async (method: "GET" | "POST", path: string, body?: unknown) => {
+      if (method === "GET" && path === "/api/provider") {
+        return { data: [{ id: "github-copilot" }, { id: "fixture" }] };
+      }
+      if (method === "GET" && path === "/api/model") {
+        return {
           data: [
-            {
-              id: "gpt-5-mini",
-              providerID: "github-copilot",
-              name: "GPT-5 mini",
-              limit: { context: 400_000 },
-            },
+            { id: "gpt-5-mini", providerID: "github-copilot", name: "GPT-5 mini", limit: { context: 400_000 } },
             { id: "echo-1", providerID: "fixture", name: "Echo One" },
             { id: "huerfano", providerID: "otro-provider", name: "Sin provider activo" },
           ],
-        },
-        error: undefined,
-      }),
-    },
-    session: {
-      create: async () => ({ data: { data: { id: sessionID, tokens: { input: 0, output: 0 } } }, error: undefined }),
-      prompt: async (params: PromptCall) => {
-        options.promptCalls?.push(params);
-        if (options.promptError) return { data: undefined, error: options.promptError };
-        return { data: {}, error: undefined };
-      },
-      wait: async () => ({ data: undefined, error: undefined }),
-      messages: async () => ({
-        data: {
-          cursor: {},
+        };
+      }
+      if (method === "POST" && path === "/api/session") {
+        return { data: { id: "ses_1" } };
+      }
+      if (method === "POST" && path === "/api/session/ses_1/prompt") {
+        options.promptCalls?.push(body as { text: string });
+        if (options.promptFails) throw new OpencodeHttpError(400, 'POST prompt → 400: Missing key ["text"]');
+        return { data: { id: "msg_1" } };
+      }
+      if (method === "GET" && path === "/api/session/ses_1/message") {
+        return {
           data: [
+            { type: "idle", outcome: options.idleOutcome ?? "succeeded" },
             {
-              info: { role: "user" },
-              parts: [{ type: "text", text: "…" }],
+              type: "assistant",
+              time: { completed: 1 },
+              content: [{ type: "text", text: options.assistantText ?? "echo: último turno" }],
             },
-            {
-              info: { role: "assistant", error: options.assistantError },
-              parts: [{ type: "text", text: options.assistantText ?? `echo: último turno` }],
-            },
+            { type: "user", content: [{ type: "text", text: "…" }] },
           ],
-        },
-        error: undefined,
-      }),
-      get: async () => ({
-        data: { data: { id: sessionID, tokens: options.sessionTokens ?? { input: 3, output: 7 } } },
-        error: undefined,
-      }),
+        };
+      }
+      if (method === "GET" && path === "/api/session/ses_1") {
+        return { data: { id: "ses_1", tokens: options.sessionTokens ?? { input: 3, output: 7 } } };
+      }
+      throw new OpencodeHttpError(404, `${method} ${path} → 404: ruta no stubbeada en el fake`);
     },
   };
-  return { v2 } as unknown as OpencodeClient;
+  return api as unknown as OpencodeApiClient;
 }
 
 describe("OpencodeBridge.catalog", () => {
   test("aplasta modelos a ids providerID/modelID y filtra por providers activos", async () => {
-    const bridge = new OpencodeBridge(fakeClient());
+    const bridge = new OpencodeBridge(fakeApi());
     const models = await bridge.catalog();
     expect(models.map((m) => m.id)).toEqual(["github-copilot/gpt-5-mini", "fixture/echo-1"]);
     expect(models[0]?.contextWindow).toBe(400_000);
@@ -85,19 +66,13 @@ describe("OpencodeBridge.catalog", () => {
 
   test("cachea el catálogo (TTL)", async () => {
     let calls = 0;
-    const base = fakeClient() as unknown as { v2: { model: { list: () => Promise<unknown> } } };
+    const base = fakeApi();
     const client = {
-      ...(base as object),
-      v2: {
-        ...(base as any).v2,
-        model: {
-          list: async () => {
-            calls += 1;
-            return (base as any).v2.model.list();
-          },
-        },
+      request: (method: "GET" | "POST", path: string, body?: unknown) => {
+        if (path === "/api/model") calls += 1;
+        return base.request(method, path, body);
       },
-    } as unknown as OpencodeClient;
+    } as unknown as OpencodeApiClient;
     const bridge = new OpencodeBridge(client);
     await bridge.catalog();
     await bridge.catalog();
@@ -107,7 +82,7 @@ describe("OpencodeBridge.catalog", () => {
 
 describe("OpencodeBridge.resolve", () => {
   test("acepta providerID/modelID y providerID a secas", async () => {
-    const bridge = new OpencodeBridge(fakeClient());
+    const bridge = new OpencodeBridge(fakeApi());
     expect(await bridge.resolve("github-copilot/gpt-5-mini")).toEqual({
       providerID: "github-copilot",
       modelID: "gpt-5-mini",
@@ -116,15 +91,15 @@ describe("OpencodeBridge.resolve", () => {
   });
 
   test("provider desconocido → ModelNotFoundError", async () => {
-    const bridge = new OpencodeBridge(fakeClient());
+    const bridge = new OpencodeBridge(fakeApi());
     expect(bridge.resolve("noexiste/modelo")).rejects.toBeInstanceOf(ModelNotFoundError);
   });
 });
 
 describe("OpencodeBridge.chat", () => {
-  test("create→prompt→wait→messages→get: texto y usage", async () => {
-    const calls: PromptCall[] = [];
-    const bridge = new OpencodeBridge(fakeClient({ promptCalls: calls }));
+  test("session→prompt(plano)→poll idle→assistant+usage", async () => {
+    const calls: Array<{ text: string }> = [];
+    const bridge = new OpencodeBridge(fakeApi({ promptCalls: calls }));
     const result = await bridge.chat({
       model: "github-copilot/gpt-5-mini",
       messages: [
@@ -136,27 +111,24 @@ describe("OpencodeBridge.chat", () => {
     });
     expect(result.text).toBe("echo: último turno");
     expect(result.usage).toEqual({ input: 3, output: 7, total: 10 });
-    const call = calls[0]!;
-    expect(call.sessionID).toBe("ses_1");
-    expect(call.prompt?.text).toContain("sos un asistente");
-    expect(call.prompt?.text).toContain("Conversación previa");
-    expect(call.prompt?.text).toContain("assistant: qué tal");
-    expect(call.prompt?.text.endsWith("todo bien")).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.text).toContain("sos un asistente");
+    expect(calls[0]!.text).toContain("Conversación previa");
+    expect(calls[0]!.text).toContain("assistant: qué tal");
+    expect(calls[0]!.text.endsWith("todo bien")).toBe(true);
   });
 
   test("prompt rechazado → UpstreamError", async () => {
-    const bridge = new OpencodeBridge(fakeClient({ promptError: { _tag: "ProviderNotFoundError" } }));
+    const bridge = new OpencodeBridge(fakeApi({ promptFails: true }));
     expect(
       bridge.chat({ model: "fixture/echo-1", messages: [{ role: "user", content: "x" }] }),
     ).rejects.toBeInstanceOf(UpstreamError);
   });
 
-  test("error en el mensaje del asistente → UpstreamError con detalle", async () => {
-    const bridge = new OpencodeBridge(
-      fakeClient({ assistantText: "", assistantError: { message: "cuota agotada" } }),
-    );
+  test("turno con outcome error → UpstreamError con detalle", async () => {
+    const bridge = new OpencodeBridge(fakeApi({ assistantText: "", idleOutcome: "error" }));
     expect(
       bridge.chat({ model: "fixture/echo-1", messages: [{ role: "user", content: "x" }] }),
-    ).rejects.toThrow(/cuota agotada/);
+    ).rejects.toThrow(/outcome "error"/);
   });
 });
