@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 /**
@@ -12,8 +13,8 @@ export interface FleetMember {
   url: string;
   /** password del server (Basic auth); undefined = sin auth */
   password?: string;
-  /** "shared" = reutiliza el perfil de opencode del usuario; si no, XDG_DATA_HOME propio */
-  profile: "shared" | string;
+  /** home de la instancia (~/.fleetproxy en spawn; "attach" para servers remotos) */
+  profile: string;
   spawned: boolean;
   close(): Promise<void> | void;
 }
@@ -31,15 +32,32 @@ export function memberFromUrl(url: string, password?: string): FleetMember {
     id: nextId(),
     url: url.replace(/\/$/, ""),
     password: password ?? process.env.FLEETPROXY_OPENCODE_PASSWORD,
-    profile: "shared",
+    profile: "attach",
     spawned: false,
     close: () => {},
   };
 }
 
 /**
- * Binario de `opencode-ai` instalado como dependencia nuestra, si existe.
- * Se resuelve por el campo "bin" de su package.json (multiplataforma).
+ * Casa de fleetproxy: data, logins y configuración del motor viven acá,
+ * aislados del opencode del sistema (que para nosotros es solo un engine).
+ */
+export function fleetHome(): string {
+  return join(homedir(), ".fleetproxy");
+}
+
+/** Variables XDG que aíslan al motor dentro de `home`. */
+export function fleetEnv(home = fleetHome()): Record<string, string> {
+  return {
+    XDG_DATA_HOME: join(home, "data"),
+    XDG_CONFIG_HOME: join(home, "config"),
+    XDG_STATE_HOME: join(home, "state"),
+  };
+}
+
+/**
+ * Binario del motor: la dependencia `opencode-ai` (npm) empaqueta un binario
+ * por plataforma. Nunca usamos el opencode del sistema.
  */
 export function bundledOpencodeBin(): string | undefined {
   try {
@@ -55,42 +73,44 @@ export function bundledOpencodeBin(): string | undefined {
   }
 }
 
-/**
- * Orden de resolución del runtime: opción explícita → FLEETPROXY_OPENCODE_BIN →
- * `opencode` en PATH (el del usuario: más nuevo y con su perfil logueado) →
- * binario empaquetado (node_modules/opencode-ai, para quien no lo tenga instalado).
- */
-export function resolveOpencodeBin(preferred?: string): string {
-  if (preferred) return preferred;
-  const fromEnv = process.env.FLEETPROXY_OPENCODE_BIN;
-  if (fromEnv) return fromEnv;
-  if (Bun.which("opencode") !== null) return "opencode";
-  return bundledOpencodeBin() ?? "opencode";
+/** Binario del motor a usar (override interno para tests; si no, el empaquetado). */
+export function resolveOpencodeBin(preferred?: string): string | undefined {
+  return preferred ?? bundledOpencodeBin();
 }
 
-export function isOpencodeAvailable(bin = resolveOpencodeBin()): boolean {
+export function isOpencodeAvailable(bin: string): boolean {
   return bin.includes("/") ? existsSync(bin) : Bun.which(bin) !== null;
 }
 
-/**
- * Spawnea un `opencode serve` local con password conocida.
- * Nota: el createOpencodeServer del SDK espera un stdout que opencode 2.2.x
- * ya no emite, así que parseamos el stdout nosotros mismos.
- */
-export async function spawnMember(options: { port?: number; dataDir?: string; timeoutMs?: number; bin?: string } = {}): Promise<FleetMember> {
-  const bin = resolveOpencodeBin(options.bin);
-  if (!isOpencodeAvailable(bin)) {
-    throw new Error(
-      `No se encontró el binario \`${bin}\` (ni empaquetado ni en PATH). fleetproxy lo usa como runtime:\n` +
-        "  - instalarlo:  curl -fsSL https://opencode.ai/install | bash   (o npm i -g opencode-ai)\n" +
-        "  - o evitarlo:  configurá un server existente con { \"opencode\": { \"url\": \"...\" } } en fleetproxy.json (modo attach)",
-    );
-  }
-  const port = options.port ?? 18_000 + Math.floor(Math.random() * 4_000);
-  const password = `fleet-${crypto.randomUUID()}`;
-  const env: Record<string, string> = { ...process.env as Record<string, string>, OPENCODE_SERVER_PASSWORD: password };
-  if (options.dataDir) env.XDG_DATA_HOME = options.dataDir;
+function engineMissingError(bin?: string): Error {
+  return new Error(
+    `El motor opencode de fleetproxy no está disponible${bin ? ` (${bin})` : ""}.\n` +
+      "  - Reinstalá las dependencias de fleetproxy (el paquete `opencode-ai` trae el binario).\n" +
+      '  - O adjuntá un server existente: { "opencode": { "url": "http://..." } } en fleetproxy.json.',
+  );
+}
 
+/**
+ * Spawnea el `opencode serve` empaquetado con:
+ *   - home aislado (~/.fleetproxy): ni data, ni auth, ni config compartidos con el sistema
+ *   - password conocida (OPENCODE_SERVER_PASSWORD) para el Basic auth interno
+ * parseamos el stdout nosotros mismos porque el formato cambió entre versiones.
+ */
+export async function spawnMember(
+  options: { port?: number; home?: string; timeoutMs?: number; bin?: string } = {},
+): Promise<FleetMember> {
+  const bin = resolveOpencodeBin(options.bin);
+  if (!bin || !isOpencodeAvailable(bin)) throw engineMissingError(bin);
+
+  const home = options.home ?? fleetHome();
+  const env = {
+    ...(process.env as Record<string, string>),
+    ...fleetEnv(home),
+    OPENCODE_SERVER_PASSWORD: `fleet-${crypto.randomUUID()}`,
+  };
+  for (const dir of Object.values(fleetEnv(home))) mkdirSync(dir, { recursive: true });
+
+  const port = options.port ?? 18_000 + Math.floor(Math.random() * 4_000);
   const proc = Bun.spawn([bin, "serve", "--hostname=127.0.0.1", `--port=${port}`], {
     stdout: "pipe",
     stderr: "pipe",
@@ -102,8 +122,8 @@ export async function spawnMember(options: { port?: number; dataDir?: string; ti
   return {
     id: nextId(),
     url,
-    password,
-    profile: options.dataDir ?? "shared",
+    password: env.OPENCODE_SERVER_PASSWORD,
+    profile: home,
     spawned: true,
     close: async () => {
       proc.kill();

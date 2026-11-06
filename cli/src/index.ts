@@ -1,8 +1,16 @@
 #!/usr/bin/env bun
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createApp, OpencodeApiClient, OpencodeBridge } from "@fleetproxy/core";
-import { memberFromUrl, spawnMember, type FleetMember } from "@fleetproxy/fleet";
+import {
+  fleetEnv,
+  fleetHome,
+  isOpencodeAvailable,
+  memberFromUrl,
+  resolveOpencodeBin,
+  spawnMember,
+  type FleetMember,
+} from "@fleetproxy/fleet";
 
 interface Config {
   port?: number;
@@ -13,12 +21,13 @@ const usage = `fleetproxy — façade OpenAI-compatible sobre opencode
 
 Uso:
   fleetproxy serve [--port <n>]   Levanta el proxy (config: fleetproxy.json)
-  fleetproxy models               Lista modelos del opencode conectado
-  fleetproxy login <provider>     (próximo hito) delega al auth login de opencode
+  fleetproxy models               Lista modelos del motor conectado
+  fleetproxy login [provider...]  Login de providers (motor empaquetado, home ~/.fleetproxy)
 
 Config (fleetproxy.json, opcional):
   { "port": 8787, "opencode": { "url": "http://127.0.0.1:4096" } }
-  Sin "opencode.url" se spawnea un "opencode serve" local (binario en PATH).
+  Sin "opencode.url" se spawnea el motor empaquetado (opencode-ai); sus datos,
+  logins y config quedan aislados en ~/.fleetproxy (no tocan tu opencode del sistema).
 `;
 
 function loadConfig(): Config {
@@ -67,14 +76,27 @@ async function main(): Promise<void> {
     const bridge = bridgeFor(member);
     const models = await bridge.catalog();
     for (const model of models) console.log(model.id);
-    if (models.length === 0) console.log("(sin modelos: conectate a opencode con algún provider autenticado)");
+    if (models.length === 0) console.log("(sin modelos: corré `fleetproxy login` para autenticar un provider)");
     if (spawned) await member.close();
     return;
   }
 
   if (command === "login") {
-    console.log("fleetproxy login <provider>: todavía no implementado (hito 2).");
-    console.log("Por ahora usá: opencode auth login");
+    const bin = resolveOpencodeBin();
+    if (!bin || !isOpencodeAvailable(bin)) {
+      console.error("fleetproxy: motor opencode no disponible (reinstalá las dependencias de fleetproxy).");
+      process.exit(1);
+    }
+    const home = fleetHome();
+    for (const dir of Object.values(fleetEnv(home))) mkdirSync(dir, { recursive: true });
+    const proc = Bun.spawn([bin, "auth", "login", ...argv.slice(1)], {
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+      env: { ...process.env, ...fleetEnv(home) } as Record<string, string>,
+    });
+    const code = await proc.exited;
+    if (code !== 0) process.exit(code ?? 1);
     return;
   }
 

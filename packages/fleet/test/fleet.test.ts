@@ -1,44 +1,43 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { bundledOpencodeBin, isOpencodeAvailable, resolveOpencodeBin, spawnMember } from "../src/index";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { bundledOpencodeBin, fleetEnv, fleetHome, isOpencodeAvailable, resolveOpencodeBin, spawnMember } from "../src/index";
 
-describe("spawnMember sin opencode instalado", () => {
-  test("falla con guidance amigable en lugar de un crash crudo", async () => {
-    const bin = "opencode-que-no-existe-en-patvh";
-    expect(isOpencodeAvailable(bin)).toBe(false);
+describe("motor empaquetado (nunca el del sistema)", () => {
+  test("el binario de la dependencia opencode-ai existe y es la resolución por defecto", () => {
+    const bundled = bundledOpencodeBin();
+    if (bundled) {
+      expect(existsSync(bundled)).toBe(true);
+      expect(resolveOpencodeBin()).toBe(bundled);
+    }
+  });
+
+  test("sin motor disponible, spawnMember falla con guidance (sin crear procesos)", async () => {
+    const fake = "opencode-que-no-existe-en-patvh";
+    expect(isOpencodeAvailable(fake)).toBe(false);
     let message = "";
     try {
-      await spawnMember({ bin });
+      await spawnMember({ bin: fake });
     } catch (error) {
       message = error instanceof Error ? error.message : String(error);
     }
-    expect(message).toContain("No se encontró el binario");
-    expect(message).toContain("opencode.ai/install");
-    expect(message).toContain("attach");
-  });
-
-  test("isOpencodeAvailable responde boolean sin crashear", () => {
-    // En máquinas con opencode instalado da true; en CI sin él ni empaquetado, false.
-    expect(typeof isOpencodeAvailable()).toBe("boolean");
+    expect(message).toContain("motor opencode");
+    expect(message).toContain("opencode-ai");
+    expect(message).toContain("url");
   });
 });
 
-describe("resolución del runtime opencode", () => {
-  test("el binario empaquetado (dependencia opencode-ai) existe si está instalado", () => {
-    const bundled = bundledOpencodeBin();
-    if (bundled) expect(existsSync(bundled)).toBe(true);
+describe("home aislado ~/.fleetproxy", () => {
+  test("fleetHome apunta a ~/.fleetproxy", () => {
+    expect(fleetHome()).toBe(join(homedir(), ".fleetproxy"));
   });
 
-  test("orden: preferido explícito → FLEETPROXY_OPENCODE_BIN → PATH → empaquetado", () => {
-    expect(resolveOpencodeBin("/bin/preferido")).toBe("/bin/preferido");
-    const saved = process.env.FLEETPROXY_OPENCODE_BIN;
-    process.env.FLEETPROXY_OPENCODE_BIN = "/ruta/custom/opencode";
-    expect(resolveOpencodeBin()).toBe("/ruta/custom/opencode");
-    if (saved === undefined) delete process.env.FLEETPROXY_OPENCODE_BIN;
-    else process.env.FLEETPROXY_OPENCODE_BIN = saved;
-    // sin overrides: PATH si hay binario, si no el empaquetado, si no "opencode"
-    const resolved = resolveOpencodeBin();
-    expect(typeof resolved).toBe("string");
-    expect(resolved).not.toBe("/ruta/custom/opencode");
+  test("fleetEnv aísla data, config y state bajo el home", () => {
+    expect(fleetEnv("/home/x/.fleetproxy")).toEqual({
+      XDG_DATA_HOME: "/home/x/.fleetproxy/data",
+      XDG_CONFIG_HOME: "/home/x/.fleetproxy/config",
+      XDG_STATE_HOME: "/home/x/.fleetproxy/state",
+    });
   });
 });
