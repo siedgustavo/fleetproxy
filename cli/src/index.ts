@@ -14,6 +14,8 @@ import {
 
 interface Config {
   port?: number;
+  /** API key que exijen las rutas /v1/* (también por env FLEETPROXY_TOKEN) */
+  token?: string;
   opencode?: { url?: string };
 }
 
@@ -25,7 +27,9 @@ Uso:
   fleetproxy login [provider...]  Login de providers (motor empaquetado, home ~/.fleetproxy)
 
 Config (fleetproxy.json, opcional):
-  { "port": 8787, "opencode": { "url": "http://127.0.0.1:4096" } }
+  { "port": 8787, "token": "sk-…", "opencode": { "url": "http://127.0.0.1:4096" } }
+  Con "token" (o env FLEETPROXY_TOKEN) las rutas /v1/* exigen
+  Authorization: Bearer <token>; /health queda abierta.
   Sin "opencode.url" se spawnea el motor empaquetado (opencode-ai); sus datos,
   logins y config quedan aislados en ~/.fleetproxy (no tocan tu opencode del sistema).
 `;
@@ -62,7 +66,7 @@ async function main(): Promise<void> {
     const port = parsePort(argv, config);
     const { member, spawned } = await attachOrSpawn(config);
     const bridge = bridgeFor(member);
-    const app = createApp({ bridge });
+    const app = createApp({ bridge, apiToken: process.env.FLEETPROXY_TOKEN ?? config.token });
     const server = Bun.serve({ port, fetch: app.fetch });
     const models = await bridge.catalog().catch(() => []);
     console.log(`fleetproxy escuchando en http://localhost:${server.port}`);

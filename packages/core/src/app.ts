@@ -3,10 +3,26 @@ import { ModelNotFoundError, OpencodeBridge, UpstreamError, type ChatResult } fr
 
 export interface CreateAppOptions {
   bridge: OpencodeBridge;
+  /**
+   * API key estilo OpenAI: si está definida, toda ruta /v1/* (y los alias
+   * legacy) exige `Authorization: Bearer <token>`; sin definir, el server es
+   * abierto (dev local). /health queda siempre abierta (probes del cluster).
+   */
+  apiToken?: string;
 }
 
 function openAIError(message: string, type = "invalid_request_error", code?: string) {
   return { error: { message, type, param: null, code: code ?? null } } as const;
+}
+
+/** Comparación en tiempo constante para no filtrar el token por timing. */
+function timingSafeEquals(a: string, b: string): boolean {
+  const ba = new TextEncoder().encode(a);
+  const bb = new TextEncoder().encode(b);
+  if (ba.length !== bb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ba.length; i += 1) diff |= ba[i]! ^ bb[i]!;
+  return diff === 0;
 }
 
 function usageOf(result: ChatResult) {
@@ -66,10 +82,21 @@ function sseResponse(params: {
   });
 }
 
-export function createApp({ bridge }: CreateAppOptions): Hono {
+export function createApp({ bridge, apiToken }: CreateAppOptions): Hono {
   const app = new Hono();
 
   app.get("/health", (c) => c.json({ ok: true }));
+
+  const requireToken = async (c: Context, next: () => Promise<void>) => {
+    if (!apiToken) return next();
+    const header = c.req.header("authorization") ?? "";
+    const presented = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
+    if (presented && timingSafeEquals(presented, apiToken)) return next();
+    return c.json(openAIError("No API key provided (usá Authorization: Bearer <token>)", "authentication_error", "invalid_api_key"), 401);
+  };
+  app.use("/v1/*", requireToken);
+  app.use("/models", requireToken);
+  app.use("/chat/completions", requireToken);
 
   const modelsHandler = async (c: Context) => {
     const models = await bridge.catalog();

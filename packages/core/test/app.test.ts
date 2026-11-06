@@ -94,3 +94,47 @@ describe("POST /v1/chat/completions", () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe("API key (token de serve)", () => {
+  const authed = () => createApp({ bridge: new OpencodeBridge(fakeApi()), apiToken: "sk-test" });
+
+  test("/health sigue abierta (probes del cluster)", async () => {
+    expect((await authed().request("/health")).status).toBe(200);
+  });
+
+  test("401 sin Authorization en /v1/models, con shape de error OpenAI", async () => {
+    const res = await authed().request("/v1/models");
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error: { type: string; code: string } };
+    expect(body.error.type).toBe("authentication_error");
+    expect(body.error.code).toBe("invalid_api_key");
+  });
+
+  test("401 con token incorrecto o header que no es Bearer", async () => {
+    for (const header of ["Bearer sk-otra", "Basic abc", ""]) {
+      const res = await authed().request("/v1/chat/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: header },
+        body: JSON.stringify({ model: "fixture/echo-1", messages: [{ role: "user", content: "x" }] }),
+      });
+      expect(res.status).toBe(401);
+    }
+  });
+
+  test("200 con Bearer correcto en /v1/models y chat (y alias legacy)", async () => {
+    const app = authed();
+    const bearer = { authorization: "Bearer sk-test" };
+    expect((await app.request("/v1/models", { headers: bearer })).status).toBe(200);
+    expect((await app.request("/models", { headers: bearer })).status).toBe(200);
+    const chat = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...bearer },
+      body: JSON.stringify({ model: "fixture/echo-1", messages: [{ role: "user", content: "x" }] }),
+    });
+    expect(chat.status).toBe(200);
+  });
+
+  test("sin token configurado el server queda abierto", async () => {
+    expect((await makeApp().request("/v1/models")).status).toBe(200);
+  });
+});

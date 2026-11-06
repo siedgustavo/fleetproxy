@@ -2,6 +2,8 @@
 
 API **OpenAI-compatible** (`/v1/chat/completions` + `/v1/models`) sobre [opencode](https://opencode.ai):
 tus suscripciones de LLM disponibles como endpoint OpenAI, sin que nadie escriba código de proveedor.
+Con `token` en `fleetproxy.json` (o `FLEETPROXY_TOKEN`) las rutas `/v1/*` exigen
+`Authorization: Bearer <token>`, como OpenAI.
 
 ```
 cliente OpenAI ──HTTP──▶ fleetproxy ──HTTP /api/*──▶ motor opencode ──▶ módulos de la comunidad ──▶ LLM
