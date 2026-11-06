@@ -1,0 +1,13 @@
+{
+  "name": "@fleetproxy/cli",
+  "version": "0.0.1",
+  "type": "module",
+  "bin": {
+    "fleetproxy": "src/index.ts"
+  },
+  "dependencies": {
+    "@fleetproxy/core": "workspace:*",
+    "@fleetproxy/fleet": "workspace:*",
+    "@opencode-ai/sdk": "^1.19.5"
+  }
+}
