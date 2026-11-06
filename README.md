@@ -15,8 +15,10 @@ fleetproxy **no conhece proveedores**: habla con el server de opencode y expone 
 pueda hacer. Los providers (GitHub Copilot, GitLab, OpenAI, Anthropic, Ollama, o el módulo que la
 comunidad publique en el ecosistema opencode) se autentican y configuran **dentro de la app**:
 
-- El motor es el paquete npm [`opencode-ai`](https://www.npmjs.com/package/opencode-ai), instalado
-  como dependencia de fleetproxy — no hace falta tener opencode en la máquina.
+- El motor es un build de [opencode](https://github.com/anomalyco/opencode): la imagen Docker lo
+  **vendoriza desde un release de GitHub** (pin `OPENCODE_ENGINE_VERSION`, hoy `2.2.4`) y en el repo
+  de desarrollo lo provee el paquete npm [`opencode-ai`](https://www.npmjs.com/package/opencode-ai).
+  No hace falta tener opencode en la máquina.
 - Todo queda contenido en `~/.fleetproxy` (data, logins, config): nada se comparte con un
   opencode del sistema.
 - `fleetproxy login` corre el auth-flow del motor dentro de esa casa.

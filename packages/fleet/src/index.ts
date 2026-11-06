@@ -57,7 +57,7 @@ export function fleetEnv(home = fleetHome()): Record<string, string> {
 
 /**
  * Binario del motor: la dependencia `opencode-ai` (npm) empaqueta un binario
- * por plataforma. Nunca usamos el opencode del sistema.
+ * por plataforma. Es el fallback del vendorizado; nunca el opencode del sistema.
  */
 export function bundledOpencodeBin(): string | undefined {
   try {
@@ -73,9 +73,19 @@ export function bundledOpencodeBin(): string | undefined {
   }
 }
 
-/** Binario del motor a usar (override interno para tests; si no, el empaquetado). */
+/**
+ * Motor vendorizado: binario de un release de opencode colocado en <repo>/engine/
+ * (la imagen Docker lo deja ahí, pinneado por OPENCODE_ENGINE_VERSION). En el
+ * repo local es opcional: si no existe, se usa el paquete npm.
+ */
+export function vendoredOpencodeBin(): string | undefined {
+  const bin = join(import.meta.dir, "..", "..", "..", "engine", "opencode");
+  return existsSync(bin) ? bin : undefined;
+}
+
+/** Binario del motor a usar (override interno para tests). */
 export function resolveOpencodeBin(preferred?: string): string | undefined {
-  return preferred ?? bundledOpencodeBin();
+  return preferred ?? vendoredOpencodeBin() ?? bundledOpencodeBin();
 }
 
 export function isOpencodeAvailable(bin: string): boolean {

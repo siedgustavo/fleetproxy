@@ -2,15 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { bundledOpencodeBin, fleetEnv, fleetHome, isOpencodeAvailable, resolveOpencodeBin, spawnMember } from "../src/index";
+import { bundledOpencodeBin, fleetEnv, fleetHome, isOpencodeAvailable, resolveOpencodeBin, spawnMember, vendoredOpencodeBin } from "../src/index";
 
 describe("motor empaquetado (nunca el del sistema)", () => {
-  test("el binario de la dependencia opencode-ai existe y es la resolución por defecto", () => {
+  test("el binario vendorizado (engine/) manda si existe; si no, el del paquete npm", () => {
+    const vendored = vendoredOpencodeBin();
+    expect(vendored === undefined || existsSync(vendored)).toBe(true);
+    const resolved = resolveOpencodeBin();
+    if (vendored) expect(resolved).toBe(vendored);
     const bundled = bundledOpencodeBin();
-    if (bundled) {
-      expect(existsSync(bundled)).toBe(true);
-      expect(resolveOpencodeBin()).toBe(bundled);
-    }
+    if (!vendored && bundled) expect(resolved).toBe(bundled);
   });
 
   test("sin motor disponible, spawnMember falla con guidance (sin crear procesos)", async () => {
