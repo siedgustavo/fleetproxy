@@ -4,6 +4,8 @@ import { ModelNotFoundError, OpencodeBridge, UpstreamError } from "../src/bridge
 
 interface FakeOptions {
   promptCalls?: Array<{ text?: string; prompt?: { text?: string } }>;
+  sessionCreates?: Array<{ model: unknown; agent?: string }>;
+  agentIds?: string[] | "404";
   promptFails?: boolean;
   /** imita al server 1.19.x: rechaza el body plano pidiendo la clave "prompt" */
   promptRequiresNested?: boolean;
@@ -28,7 +30,13 @@ export function fakeApi(options: FakeOptions = {}): OpencodeApiClient {
           ],
         };
       }
+      if (method === "GET" && path === "/api/agent") {
+        if (options.agentIds === "404") throw new OpencodeHttpError(404, "GET /api/agent → 404");
+        const ids = options.agentIds ?? ["build", "chat", "title"];
+        return { data: ids.map((id) => ({ id, name: id })) };
+      }
       if (method === "POST" && path === "/api/session") {
+        options.sessionCreates?.push(body as { model: unknown; agent?: string });
         return { data: { id: "ses_1" } };
       }
       if (method === "POST" && path === "/api/session/ses_1/prompt") {
@@ -150,5 +158,30 @@ describe("OpencodeBridge.chat", () => {
     expect(
       bridge.chat({ model: "fixture/echo-1", messages: [{ role: "user", content: "x" }] }),
     ).rejects.toThrow(/outcome "error"/);
+  });
+});
+
+describe("OpencodeBridge agente de sesión", () => {
+  test("usa el agente chat del motor y cachea la resolución", async () => {
+    const creates: NonNullable<FakeOptions["sessionCreates"]> = [];
+    const bridge = new OpencodeBridge(fakeApi({ sessionCreates: creates }));
+    await bridge.chat({ model: "fixture/echo-1", messages: [{ role: "user", content: "a" }] });
+    await bridge.chat({ model: "fixture/echo-1", messages: [{ role: "user", content: "b" }] });
+    expect(creates.map((c) => c.agent)).toEqual(["chat", "chat"]);
+  });
+
+  test("si el motor no ofrece chat, crea la sesión sin agent (usa su default)", async () => {
+    const creates: NonNullable<FakeOptions["sessionCreates"]> = [];
+    const bridge = new OpencodeBridge(fakeApi({ sessionCreates: creates, agentIds: ["build", "title"] }));
+    await bridge.chat({ model: "fixture/echo-1", messages: [{ role: "user", content: "a" }] });
+    expect(creates[0]!.agent).toBeUndefined();
+  });
+
+  test("404 en /api/agent no rompe el chat", async () => {
+    const creates: NonNullable<FakeOptions["sessionCreates"]> = [];
+    const bridge = new OpencodeBridge(fakeApi({ sessionCreates: creates, agentIds: "404" }));
+    const result = await bridge.chat({ model: "fixture/echo-1", messages: [{ role: "user", content: "a" }] });
+    expect(result.text).toBe("echo: último turno");
+    expect(creates[0]!.agent).toBeUndefined();
   });
 });

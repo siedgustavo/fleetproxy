@@ -62,6 +62,12 @@ export interface BridgeOptions {
   /** máx a esperar el mensaje idle del turno */
   completionTimeoutMs?: number;
   completionPollMs?: number;
+  /**
+   * Agente del motor a usar en las sesiones (por id, p. ej. "chat": sin tools
+   * y prompt mínimo → ~450 prompt tokens vs ~4.900 del agente Build). Si el
+   * motor no lo tiene, se cae al default del motor sin error.
+   */
+  agent?: string;
 }
 
 /**
@@ -80,12 +86,16 @@ export class OpencodeBridge {
    * {prompt:{text}}. Probamos flat una vez y recordamos el formato que funcionó.
    */
   #promptBodyFormat: "unknown" | "flat" | "nested" = "unknown";
+  #preferredAgent: string;
+  /** undefined = aún no consultado; null = el motor no ofrece el agente pedido */
+  #agentId: string | null | undefined = undefined;
 
   constructor(api: OpencodeApiClient, options: BridgeOptions = {}) {
     this.#api = api;
     this.#catalogTtlMs = options.catalogTtlMs ?? 30_000;
     this.#completionTimeoutMs = options.completionTimeoutMs ?? 120_000;
     this.#completionPollMs = options.completionPollMs ?? 500;
+    this.#preferredAgent = options.agent ?? "chat";
   }
 
   async catalog(forceRefresh = false): Promise<CatalogModel[]> {
@@ -171,8 +181,10 @@ export class OpencodeBridge {
     const promptText = [...sections, lastUser].filter((s) => s && s.length > 0).join("\n\n");
 
     try {
+      const agent = await this.#resolveAgent();
       const created = await this.#api.request<{ data?: { id?: string } }>("POST", "/api/session", {
         model: { id: modelID, providerID },
+        ...(agent ? { agent } : {}),
       });
       const sessionID = created?.data?.id;
       if (!sessionID) throw new UpstreamError("opencode no devolvió id de sesión");
@@ -198,6 +210,24 @@ export class OpencodeBridge {
     } catch (error) {
       throw this.#mapError(error);
     }
+  }
+
+  /**
+   * Resuelve (una vez) el id real del agente preferido contra /api/agent.
+   * El motor expone ids como "build"/"chat"; si no existe, usamos su default.
+   */
+  async #resolveAgent(): Promise<string | undefined> {
+    if (this.#agentId === undefined) {
+      try {
+        const res = await this.#api.request<{ data?: Array<{ id?: string }> }>("GET", "/api/agent");
+        const ids = (res?.data ?? []).map((a) => String(a.id ?? ""));
+        const match = ids.find((id) => id === this.#preferredAgent) ?? ids.find((id) => id.toLowerCase() === this.#preferredAgent.toLowerCase());
+        this.#agentId = match ?? null;
+      } catch {
+        this.#agentId = null;
+      }
+    }
+    return this.#agentId ?? undefined;
   }
 
   /** POST /prompt con fallback flat→nested entre líneas de versión del server. */
