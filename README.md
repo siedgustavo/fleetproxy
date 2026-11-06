@@ -1,63 +1,81 @@
 # fleetproxy
 
-Proxy **OpenAI-compatible** para aprovechar las suscripciones de **GitHub Copilot** y **GitLab Duo**,
-montado sobre [opencode](https://opencode.ai): lo que el TUI para opencode, pero en forma de API.
+API **OpenAI-compatible** (`/v1/chat/completions` + `/v1/models`) sobre [opencode](https://opencode.ai):
+tus suscripciones de LLM disponibles como endpoint OpenAI, sin que nadie escriba código de proveedor.
 
 ```
-cliente OpenAI ──HTTP──▶ fleetproxy ──@opencode-ai/sdk──▶ opencode serve ──▶ plugins de la comunidad
-                          (façade + flota)                 (carga plugins,      (auth OAuth,
-                                                            auth store, config)  proveedores)
+cliente OpenAI ──HTTP──▶ fleetproxy ──HTTP /api/*──▶ motor opencode ──▶ módulos de la comunidad ──▶ LLM
+                         (façade, flota)             (dependencia        (opencode-ai + plugins:
+                                                       empaquetada)        auth, catálogo, providers)
 ```
 
-- **Los módulos son los plugins de opencode**: los escribe/mantiene la comunidad y los carga opencode en su runtime. fleetproxy no agrega código de proveedores: agrega la façade OpenAI y la orquestación de la flota.
-- **Flota**: para aprovechar N cuentas de una suscripción, se corren N instancias de opencode (perfiles separados) y fleetproxy rota los requests.
+## Provider-agnóstico
 
-## Quickstart
+fleetproxy **no conhece proveedores**: habla con el server de opencode y expone lo que ese server
+pueda hacer. Los providers (GitHub Copilot, GitLab, OpenAI, Anthropic, Ollama, o el módulo que la
+comunidad publique en el ecosistema opencode) se autentican y configuran **dentro de la app**:
+
+- El motor es el paquete npm [`opencode-ai`](https://www.npmjs.com/package/opencode-ai), instalado
+  como dependencia de fleetproxy — no hace falta tener opencode en la máquina.
+- Todo queda contenido en `~/.fleetproxy` (data, logins, config): nada se comparte con un
+  opencode del sistema.
+- `fleetproxy login` corre el auth-flow del motor dentro de esa casa.
+
+Los ids de modelo son `providerID/modelID`, tal como los expone el catálogo de opencode:
+
+```bash
+curl http://localhost:8787/v1/models
+curl http://localhost:8787/v1/chat/completions \
+  -H "content-type: application/json" \
+  -d '{"model": "github-copilot/claude-sonnet-4.5", "messages": [{"role": "user", "content": "hola"}]}'
+```
+
+## Uso local (Bun)
 
 ```bash
 bun install
-bun run dev          # spawnea `opencode serve` y expone http://localhost:8787
-
-curl http://localhost:8787/v1/models
-
-curl http://localhost:8787/v1/chat/completions \
-  -H "content-type: application/json" \
-  -d '{"model": "github-copilot/gpt-5-mini", "messages": [{"role": "user", "content": "hola"}]}'
+bun cli/src/index.ts serve        # spawnea el motor empaquetado; proxy en :8787
+bun cli/src/index.ts models       # catálogo actual
+bun cli/src/index.ts login        # auth-flow de un provider (interactivo)
 ```
 
-> Los modelos aparecen una vez que opencode tenga algún provider autenticado (ej: `opencode auth login` → GitHub Copilot).
-
-### Config (`fleetproxy.json`, opcional)
+`fleetproxy.json` (opcional):
 
 ```json
-{
-  "port": 8787,
-  "opencode": { "url": "http://127.0.0.1:4096" }
-}
+{ "port": 8787, "opencode": { "url": "http://127.0.0.1:4096" } }
 ```
 
-Sin `opencode.url`, `fleetproxy serve` spawnea su propio `opencode serve` (requiere el binario `opencode` en PATH).
+Sin `opencode.url` se spawnea el motor empaquetado; con url, fleetproxy se **attacha** a ese
+server (otro proceso, otra máquina) y no necesita binario alguno.
+
+## Docker
+
+```bash
+docker run -p 8787:8787 -v fleetproxy-home:/home/fleetproxy/.fleetproxy \
+  ghcr.io/siedgustavo/fleetproxy:latest
+
+# primer login de provider (persiste en el volumen):
+docker run --rm -it -v fleetproxy-home:/home/fleetproxy/.fleetproxy \
+  ghcr.io/siedgustavo/fleetproxy:latest bun cli/src/index.ts login
+```
+
+La imagen trae el motor adentro; el volumen guarda logins y config entre reinicios.
 
 ## Monorepo
 
-| Paquete | Rol |
-| --- | --- |
-| `packages/core` | HTTP OpenAI-compatible (Hono) + puente hacia la API de server de opencode |
-| `packages/fleet` | Supervisor de instancias opencode (spawn/attach, perfiles, rotación) |
-| `cli` | `fleetproxy serve \| models \| login` |
-
-## Scripts
-
-```bash
-bun test        # unit (fake client) + integración contra opencode serve
-bun run typecheck
+```
+packages/core    → Hono: rutas OpenAI + bridge/HTTP client contra /api/* del motor
+packages/fleet   → supervisor del motor: spawn aislado (~/.fleetproxy) o attach; flota (hito 3)
+cli              → fleetproxy serve | models | login
 ```
 
-## Roadmap corto
+## Tests
 
-1. ✅ Façade `/v1/models` + `/v1/chat/completions` sobre opencode
-2. Copilot E2E (`fleetproxy login copilot`)
-3. Flota multi-cuenta (round-robin + cooldown)
-4. GitLab Duo vía opencode (nativo o plugin `opencode-gitlab-duo`)
-5. CLI/config completos + sesiones persistentes
-6. CI + releases (binario `bun compile`, Docker con opencode incluido)
+```bash
+bun run typecheck
+bun test                              # unit + integración (spawn del motor empaquetado)
+FLEETPROXY_LIVE_CHAT=1 bun test packages/core/test/integration.test.ts   # chat real
+```
+
+El live test requiere un provider autenticado en `~/.fleetproxy` (`fleetproxy login`); sin
+`FLEETPROXY_LIVE_MODEL` elige un modelo del catálogo dinámicamente.
