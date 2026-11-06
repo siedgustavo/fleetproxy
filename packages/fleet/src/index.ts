@@ -39,13 +39,25 @@ export function memberFromUrl(url: string, password?: string): FleetMember {
  * ya no emite ("opencode server listening" vs "server listening"), así que
  * parseamos el stdout nosotros mismos.
  */
-export async function spawnMember(options: { port?: number; dataDir?: string; timeoutMs?: number } = {}): Promise<FleetMember> {
+export function isOpencodeAvailable(bin = "opencode"): boolean {
+  return Bun.which(bin) !== null;
+}
+
+export async function spawnMember(options: { port?: number; dataDir?: string; timeoutMs?: number; bin?: string } = {}): Promise<FleetMember> {
+  const bin = options.bin ?? "opencode";
+  if (!isOpencodeAvailable(bin)) {
+    throw new Error(
+      `No se encontró el binario \`${bin}\` en PATH. fleetproxy lo usa como runtime:\n` +
+        "  - instalarlo:  curl -fsSL https://opencode.ai/install | bash   (o npm i -g opencode-ai)\n" +
+        "  - o evitarlo:  configurá un server existente con { \"opencode\": { \"url\": \"...\" } } en fleetproxy.json (modo attach)",
+    );
+  }
   const port = options.port ?? 18_000 + Math.floor(Math.random() * 4_000);
   const password = `fleet-${crypto.randomUUID()}`;
   const env: Record<string, string> = { ...process.env as Record<string, string>, OPENCODE_SERVER_PASSWORD: password };
   if (options.dataDir) env.XDG_DATA_HOME = options.dataDir;
 
-  const proc = Bun.spawn(["opencode", "serve", "--hostname=127.0.0.1", `--port=${port}`], {
+  const proc = Bun.spawn([bin, "serve", "--hostname=127.0.0.1", `--port=${port}`], {
     stdout: "pipe",
     stderr: "pipe",
     env,

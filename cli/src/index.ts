@@ -81,4 +81,9 @@ async function main(): Promise<void> {
   console.log(usage);
 }
 
-await main();
+try {
+  await main();
+} catch (error) {
+  console.error(`fleetproxy: ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+}
