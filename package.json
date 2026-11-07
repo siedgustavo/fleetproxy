@@ -14,5 +14,9 @@
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "@opencode/core": "^2.2.6",
+    "effect": "4.1.0"
   }
 }
