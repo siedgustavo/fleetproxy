@@ -1,7 +1,8 @@
 # Providers soportados
 
 fleetproxy expone el catálogo de providers de opencode (**models.dev**): hoy son
-**238 providers**. No hay código de provider en fleetproxy — lo que soporta el motor, soporta
+**~238 providers** (el conteo vivo lo da `providers --all`). No hay código de provider en
+fleetproxy — lo que soporta el motor, soporta
 fleetproxy. La lista canónica y viva es:
 
 ```bash
