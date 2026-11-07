@@ -66,18 +66,29 @@ const program = Effect.gen(function* () {
   const models = (yield* model.available()) as readonly ModelInfo[];
   rss("post-catalog");
   console.log(`modelos: all=${all.length} available=${models.length}`);
+  // argv: [modelo] [prompt...] — modelo puede ser "provider/id" exacto o substring (gitlab, copilot, duo…).
+  const [modelArg, ...promptRest] = process.argv.slice(2);
+  const promptText = promptRest.length ? promptRest.join(" ") : "Responde exactamente: OK";
+  const matches = (m: ModelInfo) => {
+    const full = `${m.providerID}/${m.id}`;
+    return !modelArg || full === modelArg || full.toLowerCase().includes(modelArg.toLowerCase());
+  };
   const priority = ["github-copilot", "gitlab", "chatgpt", "openai", "opencode"];
   const rank = (m: ModelInfo) => priority.findIndex((p) => String(m.providerID).includes(p));
-  const sorted = [...models].sort((a, b) => {
+  const sorted = models.filter(matches).sort((a, b) => {
     const [ra, rb] = [rank(a), rank(b)].map((r) => (r < 0 ? 99 : r));
     return ra - rb;
   });
+  if (modelArg && sorted.length === 0) {
+    console.log(`sin matches para "${modelArg}"; disponibles:`, models.slice(0, 20).map((m) => `${m.providerID}/${m.id}`).join(", "));
+    return;
+  }
   const pick = sorted[0];
   if (!pick) return console.log("sin modelos: credenciales/catálogo no resueltos");
   const gen = yield* Generate.Service;
   const t0 = Date.now();
   const result = yield* Effect.result(
-    gen.text({ prompt: "Responde exactamente: OK", model: { id: pick.id, providerID: pick.providerID } as never }),
+    gen.text({ prompt: promptText, model: { id: pick.id, providerID: pick.providerID } as never }),
   );
   rss("post-generate");
   if (Result.isFailure(result)) {
