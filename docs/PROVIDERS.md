@@ -89,7 +89,7 @@ p. ej. `GROQ_API_KEY`). Las conexiones activas del server que corre, en vivo:
 | `arcee` | — |
 | `atomic-chat` | — |
 | `auriko` | — |
-| `azure` | — |
+| `azure` | `external:azure-cli` |
 | `bailing` | — |
 | `baseten` | — |
 | `bee` | — |
