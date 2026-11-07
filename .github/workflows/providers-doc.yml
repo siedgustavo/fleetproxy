@@ -1,0 +1,43 @@
+name: Providers doc
+
+# docs/PROVIDERS.md es una sección autogenerada (scripts/gen-providers-doc.ts):
+# la tabla del catálogo sale del `Integration.list()` real del motor, contra el
+# models.dev vivo. Este workflow la refresca y commitea sola; sin fecha en la
+# salida, así el diff solo aparece cuando cambia el catálogo.
+
+on:
+  schedule:
+    - cron: "13 3 * * 1" # lunes temprano, hora UTC
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - scripts/gen-providers-doc.ts
+      - packages/core/src/engine.ts
+      - docs/PROVIDERS.md
+      - package.json
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run docs:providers
+      - name: commitear si el catálogo cambió
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet -- docs/PROVIDERS.md; then
+            git add docs/PROVIDERS.md
+            git commit -m "docs(providers): catálogo actualizado desde models.dev ($(date -u +%F))"
+            git push
+          else
+            echo "catálogo sin cambios"
+          fi

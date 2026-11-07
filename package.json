@@ -10,7 +10,8 @@
     "dev": "bun cli/src/index.ts serve",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "engine:get": "bun scripts/get-engine.ts"
+    "engine:get": "bun scripts/get-engine.ts",
+    "docs:providers": "bun scripts/gen-providers-doc.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

@@ -1,7 +1,32 @@
 # fleetproxy
 
-API **OpenAI-compatible** (`/v1/chat/completions` + `/v1/models`) sobre [opencode](https://opencode.ai):
-tus suscripciones de LLM disponibles como endpoint OpenAI, sin que nadie escriba código de proveedor.
+**Tus suscripciones de LLM, un solo endpoint OpenAI.** Sin que nadie escriba código de proveedor:
+fleetproxy se liga al provider (OAuth o API key) y lo expone por `/v1/chat/completions` +
+`/v1/models`, con streaming, Bearer token y una sola llamada al proveedor por request.
+
+<p align="center">
+  <img alt="GitHub Copilot" src="https://img.shields.io/badge/GitHub_Copilot-24292f?logo=githubcopilot&logoColor=white">
+  <img alt="GitLab Duo" src="https://img.shields.io/badge/GitLab_Duo-FC6D26?logo=gitlab&logoColor=white">
+  <img alt="OpenAI" src="https://img.shields.io/badge/OpenAI-412991?logo=openai&logoColor=white">
+  <img alt="Anthropic" src="https://img.shields.io/badge/Anthropic-D4A27F?logo=anthropic&logoColor=white">
+  <img alt="Google" src="https://img.shields.io/badge/Google-4285F4?logo=google&logoColor=white">
+  <img alt="Amazon Bedrock" src="https://img.shields.io/badge/Amazon_Bedrock-FF9900?logo=amazonbedrock&logoColor=white">
+  <img alt="DigitalOcean" src="https://img.shields.io/badge/DigitalOcean-0080FF?logo=digitalocean&logoColor=white">
+  <img alt="Groq" src="https://img.shields.io/badge/Groq-F55036?logo=groq&logoColor=white">
+  <img alt="OpenRouter" src="https://img.shields.io/badge/OpenRouter-CE3DF3?logo=openrouter&logoColor=white">
+  <img alt="DeepSeek" src="https://img.shields.io/badge/DeepSeek-4D6BFE?logo=deepseek&logoColor=white">
+  <img alt="Mistral" src="https://img.shields.io/badge/Mistral-FF7000?logo=mistral&logoColor=white">
+  <img alt="xAI" src="https://img.shields.io/badge/xAI-1DA1F2?logo=x&logoColor=white">
+  <img alt="Ollama" src="https://img.shields.io/badge/Ollama-000000?logo=ollama&logoColor=white">
+  <img alt="+220 más" src="https://img.shields.io/badge/y_~220_m%C3%A1s-999999">
+</p>
+
+**~236 providers soportados** — el catálogo vivo de [models.dev](https://models.dev), actualizado
+por la CI en [docs/PROVIDERS.md](docs/PROVIDERS.md). El catálogo, los plugins de provider y el
+OAuth los trae [opencode](https://opencode.ai) (@opencode/core, corriendo in-process como
+librería); fleetproxy es la puerta: un endpoint OpenAI-compatible, login OAuth headless (hasta
+contra el clúster) y todo el estado aislado en `~/.fleetproxy`.
+
 Con `token` en `fleetproxy.json` (o `FLEETPROXY_TOKEN`) las rutas `/v1/*`, `/auth/login*` y
 `/auth/providers` exigen `Authorization: Bearer <token>`, como OpenAI.
 
@@ -12,7 +37,7 @@ cliente OpenAI ──HTTP──▶ fleetproxy ──en proceso──▶ @opencod
 ```
 
 > Desde `v0.2` el motor corre **in-process** como librería (`@opencode/core` + `@opencode/ai`), sin el
-> binario `opencode serve`. El faça hace **una sola llamada al proveedor** por request, con el `system`
+> binario `opencode serve`. El façade hace **una sola llamada al proveedor** por request, con el `system`
 > y los roles del historial tal cuales (sin system prompt ni agent loop del runtime). Desde `v0.2.2`
 > también el **login OAuth es in-process** (servicio `Integration` del core, endpoints `/auth/*`); el
 > binario queda solo para `fleetproxy auth` (legacy) y los tests de integración. Con `opencode.url`
@@ -20,7 +45,7 @@ cliente OpenAI ──HTTP──▶ fleetproxy ──en proceso──▶ @opencod
 
 ## Provider-agnóstico
 
-fleetproxy **no conhece proveedores**: usa el runtime de opencode como librería y expone lo que sus
+fleetproxy **no conoce proveedores**: usa el runtime de opencode como librería y expone lo que sus
 módulos puedan hacer. Los providers (GitHub Copilot, GitLab, OpenAI, Anthropic, Ollama, o el módulo que la
 comunidad publique en el ecosistema opencode) se autentican y configuran **dentro de la app**:
 
@@ -34,7 +59,7 @@ comunidad publique en el ecosistema opencode) se autentican y configuran **dentr
 
 ## Providers soportados: cómo se usan
 
-El catálogo es el de opencode (models.dev): **~238 providers**. Tres mecanismos de auth (listado
+El catálogo es el de opencode (models.dev): **~236 providers**. Tres mecanismos de auth (listado
 completo y notas en [`docs/PROVIDERS.md`](docs/PROVIDERS.md)):
 
 1. **OAuth con `fleetproxy login <provider>`** — los ~11 con método de auth: device flow
@@ -49,7 +74,7 @@ completo y notas en [`docs/PROVIDERS.md`](docs/PROVIDERS.md)):
 
 ```bash
 fleetproxy providers            # qué se puede loguear y qué está conectado (métodos + conexiones)
-fleetproxy providers --all      # los ~238 del catálogo
+fleetproxy providers --all      # los ~236 del catálogo
 ```
 
 Los ids de modelo son `providerID/modelID`, tal como los expone el catálogo:
@@ -136,8 +161,10 @@ packages/core    → Hono: rutas OpenAI (SSE incremental) + /auth/* (login vía 
                     CoreBridge (in-process, @opencode/core vía Engine) y OpencodeBridge (HTTP legado)
 packages/fleet   → home/XDG aislado (~/.fleetproxy), resolución del binario (auth legacy), flota (hito 3)
 cli              → fleetproxy serve | models | login | providers | auth
-docs/            → PROVIDERS.md: los ~238 providers del catálogo y cómo se autentica cada tipo
-scripts/         → get-engine.ts: vendoriza el binario del motor a ./engine (para `auth` local)
+docs/            → PROVIDERS.md: los ~236 providers del catálogo y cómo se autentica cada tipo
+                    (la tabla la regenera la CI: workflow "Providers doc" + `bun run docs:providers`)
+scripts/         → gen-providers-doc.ts: genera esa tabla desde Integration.list()
+                   get-engine.ts: vendoriza el binario del motor a ./engine (para `auth` local)
 spike/           → scripts del spike de arquitectura core-in-process (documentación ejecutable)
 ```
 
