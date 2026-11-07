@@ -11,6 +11,7 @@ import {
   type Bridge,
   type Engine,
   type EngineLoginAttempt,
+  type EngineProviderInfo,
 } from "@fleetproxy/core";
 import { fleetEnv, fleetHome, isOpencodeAvailable, resolveOpencodeBin } from "@fleetproxy/fleet";
 
@@ -36,6 +37,9 @@ Uso:
       --local          fuerza motor embebido en este proceso (ignora el server)
       --no-open        no intentar abrir el navegador
       --field k=v      campo del form del método, repetible (p. ej. deploymentType=enterprise)
+  fleetproxy providers [flags]         Lista providers de auth (métodos + qué está conectado)
+      --url <server> / --token <t> / --local   (mismos sentidos que en login)
+      --all            también los del catálogo sin método de auth (API keys por env)
   fleetproxy auth [...]                auth del motor empaquetado (legacy, usa el binario)
 
 Config (fleetproxy.json, opcional):
@@ -131,6 +135,7 @@ export function loginRemoteApi(server: string, token?: string): AuthApi {
     loginCancel: async (provider, attemptID) => {
       await call(`/auth/login/${encodeURIComponent(attemptID)}?provider=${encodeURIComponent(provider)}`, { method: "DELETE" });
     },
+    providers: async () => (await call("/auth/providers")) as EngineProviderInfo[],
   };
 }
 
@@ -171,6 +176,89 @@ function tryOpenBrowser(url: string): void {
   } catch {
     // sin navegador: el usuario abre la URL impresa
   }
+}
+
+/**
+ * El runtime de core loguea INFO por console.log/stdout. Para los comandos con
+ * motor embebido se redirige a stderr durante toda la vida del motor; el CLI
+ * imprime por la referencia original (stdout real). Core 2.2.6 no expone env
+ * para bajar el nivel del sink de consola. Devuelve el restore.
+ */
+function silenceCoreLogging(): { cliLog: (...args: unknown[]) => void; restore: () => void } {
+  const stdout = process.stdout;
+  const realLog = console.log.bind(console);
+  const fmt = (args: unknown[]) => `${args.map((a) => (typeof a === "string" ? a : Bun.inspect(a))).join(" ")}\n`;
+  console.log = (...args: unknown[]) => process.stderr.write(fmt(args));
+  Object.defineProperty(process, "stdout", { value: process.stderr, configurable: true, writable: true });
+  return {
+    cliLog: (...args: unknown[]) => stdout.write(fmt(args)),
+    restore: () => {
+      Object.defineProperty(process, "stdout", { value: stdout, configurable: true, writable: true });
+      console.log = realLog;
+    },
+  };
+}
+
+/** Arma la fila de un provider: métodos de auth y conexiones activas legibles. */
+function describeProvider(p: EngineProviderInfo): { id: string; methods: string; connections: string } {
+  return {
+    id: p.id,
+    methods: p.methods.map((m) => `${m.type}:${m.id}`).join(", ") || "—",
+    connections:
+      p.connections
+        .map((c) => (c.type === "env" ? `env ${c.name ?? "?"}` : c.label ?? c.type))
+        .join(", ") || "—",
+  };
+}
+
+function renderProviders(list: EngineProviderInfo[]): string {
+  const rows = list.map(describeProvider);
+  const w = Math.max("PROVIDER".length, ...rows.map((r) => r.id.length));
+  const lines = [
+    `${"PROVIDER".padEnd(w)}  ${"METODOS".padEnd(28)}  CONEXION`,
+    ...rows.map((r) => `${r.id.padEnd(w)}  ${r.methods.padEnd(28)}  ${r.connections}`),
+  ];
+  return lines.join("\n");
+}
+
+async function providersCommand(args: string[], config: Config): Promise<void> {
+  let url = "";
+  let token = "";
+  let local = false;
+  let all = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    if (arg === "--local") local = true;
+    else if (arg === "--all") all = true;
+    else if (arg === "--url") url = args[(i += 1)] ?? "";
+    else if (arg === "--token") token = args[(i += 1)] ?? "";
+  }
+  const server = local ? "" : url || process.env.FLEETPROXY_URL || config.url || "";
+  const bearer = token || process.env.FLEETPROXY_TOKEN || config.token;
+
+  let list: EngineProviderInfo[];
+  if (server) {
+    console.log(`providers contra ${server}`);
+    list = await loginRemoteApi(server, bearer).providers();
+  } else {
+    const { restore, cliLog } = silenceCoreLogging();
+    cliLog(`providers embebido, home ${fleetHome()}`);
+    try {
+      const engine = await startFleetEngine();
+      try {
+        list = await engine.providers();
+      } finally {
+        await engine.close();
+      }
+    } finally {
+      restore();
+    }
+  }
+  // Default: solo los que tienen cómo autenticarse o ya están conectados (los
+  // demás son del catálogo y se usan con API keys por env).
+  const relevant = all ? list : list.filter((p) => p.methods.length > 0 || p.connections.length > 0);
+  console.log(renderProviders(relevant));
+  if (!all && relevant.length < list.length) console.log(`(de ${list.length} en el catálogo; ${list.length - relevant.length} sin método de auth — API keys por env — ver --all)`);
 }
 
 interface LoginFlags {
@@ -314,6 +402,11 @@ async function main(): Promise<void> {
 
   if (command === "login") {
     await loginCommand(argv.slice(1), config);
+    return;
+  }
+
+  if (command === "providers") {
+    await providersCommand(argv.slice(1), config);
     return;
   }
 

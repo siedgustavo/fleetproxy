@@ -87,6 +87,13 @@ describe("loginRemoteApi (cliente HTTP de /auth/*)", () => {
       log.push(`cancel:${c.req.param("attempt")}:${c.req.query("provider")}`);
       return c.json({ ok: true });
     });
+    app.get("/auth/providers", (c) => {
+      log.push(`providers:${c.req.header("authorization") ?? "-"}`);
+      return c.json([
+        { id: "gitlab", name: "GitLab", methods: [{ id: "pkce", type: "oauth" }], connections: [{ type: "env", name: "GITLAB_TOKEN" }] },
+        { id: "digitalocean", name: "DigitalOcean", methods: [{ id: "device", type: "oauth" }], connections: [] },
+      ]);
+    });
     const server = Bun.serve({ port: 0, fetch: app.fetch });
     return { url: `http://127.0.0.1:${server.port}`, stop: () => server.stop() };
   }
@@ -103,6 +110,19 @@ describe("loginRemoteApi (cliente HTTP de /auth/*)", () => {
       await api.loginComplete("github-copilot", "att-1", "CODE");
       await api.loginCancel("github-copilot", "att-1");
       expect(log).toEqual(["connect:github-copilot:-", "status:att-1:github-copilot", "complete:CODE", "cancel:att-1:github-copilot"]);
+    } finally {
+      stub.stop();
+    }
+  });
+
+  test("providers lista con el token Bearer", async () => {
+    const log: string[] = [];
+    const stub = stubServer(log);
+    try {
+      const list = await loginRemoteApi(stub.url, "sk-test").providers();
+      expect(list.map((p) => p.id)).toEqual(["gitlab", "digitalocean"]);
+      expect(list[0]?.connections[0]).toEqual({ type: "env", name: "GITLAB_TOKEN" });
+      expect(log).toEqual(["providers:Bearer sk-test"]);
     } finally {
       stub.stop();
     }

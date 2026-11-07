@@ -21,6 +21,7 @@ export {
   type EngineLoginStatus,
   type EngineModelInfo,
   type EngineOptions,
+  type EngineProviderInfo,
   type EngineTurn,
   type LoginErrorKind,
 } from "./engine";

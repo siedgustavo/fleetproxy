@@ -208,6 +208,16 @@ describe("login OAuth in-process (/auth/*)", () => {
     async loginCancel() {
       state.recorder.push("cancel");
     },
+    async providers() {
+      return [
+        {
+          id: "github-copilot",
+          name: "GitHub Copilot",
+          methods: [{ id: "device", type: "oauth" }],
+          connections: [{ type: "credential", label: "GitHub Copilot" }],
+        },
+      ];
+    },
   });
 
   const makeAuthApp = (state: FakeAuthState, apiToken?: string) =>
@@ -216,6 +226,19 @@ describe("login OAuth in-process (/auth/*)", () => {
   test("sin `auth` las rutas de login no existen", async () => {
     expect((await makeApp().request("/auth/login", { method: "POST" })).status).toBe(404);
     expect((await makeApp().request("/auth/callback")).status).toBe(404);
+    expect((await makeApp().request("/auth/providers")).status).toBe(404);
+  });
+
+  test("GET /auth/providers lista métodos y conexiones (bajo token)", async () => {
+    const state: FakeAuthState = { pending: true, recorder: [] };
+    const app = makeAuthApp(state, "sk-test");
+    expect((await app.request("/auth/providers")).status).toBe(401);
+    const res = await app.request("/auth/providers", { headers: { authorization: "Bearer sk-test" } });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<{ id: string; methods: unknown[]; connections: unknown[] }>;
+    expect(body[0]?.id).toBe("github-copilot");
+    expect(body[0]?.methods[0]).toEqual({ id: "device", type: "oauth" });
+    expect(body[0]?.connections[0]).toEqual({ type: "credential", label: "GitHub Copilot" });
   });
 
   test("POST /auth/login inicia el attempt y devuelve url + instrucciones", async () => {

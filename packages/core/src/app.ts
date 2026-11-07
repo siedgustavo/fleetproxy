@@ -3,7 +3,7 @@ import { ModelNotFoundError, UpstreamError, type Bridge, type ChatResult } from 
 import { LoginError, type Engine } from "./engine";
 
 /** Superficie de login OAuth del motor (Engine es la implementación real). */
-export type AuthApi = Pick<Engine, "login" | "loginStatus" | "loginComplete" | "loginCancel">;
+export type AuthApi = Pick<Engine, "login" | "loginStatus" | "loginComplete" | "loginCancel" | "providers">;
 
 export interface CreateAppOptions {
   bridge: Bridge;
@@ -136,6 +136,12 @@ export function createApp({ bridge, apiToken, auth }: CreateAppOptions): Hono {
   if (auth) {
     app.use("/auth/login", requireToken);
     app.use("/auth/login/*", requireToken);
+    app.use("/auth/providers", requireToken);
+
+    // Proveedores de auth registrados: métodos disponibles y conexiones activas.
+    app.get("/auth/providers", async (c) => {
+      return c.json(await auth.providers());
+    });
 
     // El browser no trae el Bearer: /auth/callback va fuera del token.
     const bodyProvider = (body: Record<string, unknown> | null): string =>

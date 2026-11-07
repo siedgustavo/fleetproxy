@@ -32,6 +32,7 @@ function fakeEngine(overrides: Partial<Engine> = {}) {
     loginStatus: async () => ({ status: "pending" as const }),
     loginComplete: async () => {},
     loginCancel: async () => {},
+    providers: async () => [],
     async close() {},
     ...overrides,
   };

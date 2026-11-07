@@ -2,8 +2,8 @@
 
 API **OpenAI-compatible** (`/v1/chat/completions` + `/v1/models`) sobre [opencode](https://opencode.ai):
 tus suscripciones de LLM disponibles como endpoint OpenAI, sin que nadie escriba código de proveedor.
-Con `token` en `fleetproxy.json` (o `FLEETPROXY_TOKEN`) las rutas `/v1/*` y `/auth/login*` exigen
-`Authorization: Bearer <token>`, como OpenAI.
+Con `token` en `fleetproxy.json` (o `FLEETPROXY_TOKEN`) las rutas `/v1/*`, `/auth/login*` y
+`/auth/providers` exigen `Authorization: Bearer <token>`, como OpenAI.
 
 ```
 cliente OpenAI ──HTTP──▶ fleetproxy ──en proceso──▶ @opencode/core ──▶ plugins de provider ──▶ LLM
@@ -38,6 +38,7 @@ comunidad publique en el ecosistema opencode) se autentican y configuran **dentr
 fleetproxy login github-copilot              # device flow: muestra URL + código, espera y listo
 fleetproxy login github-copilot --field deploymentType=enterprise --field enterpriseUrl=acme.ghe.com
 fleetproxy login gitlab --url https://fleetproxy.apps.sied.ar --token "$FLEETPROXY_TOKEN"
+fleetproxy providers                         # qué provider se puede loguear y cuál está conectado (--all: todo el catálogo)
 ```
 
 - **Device flow** (GitHub Copilot, DigitalOcean…): funciona desde cualquier lado — el CLI imprime
@@ -53,6 +54,7 @@ HTTP (token en `/auth/login*`; `/auth/callback` es para el browser y va sin toke
 
 ```
 POST   /auth/login                 { provider, method?, answer? } → { attemptID, url, instructions, mode, answer }
+GET    /auth/providers             providers de auth registrados (métodos + conexiones activas)
 GET    /auth/login/:attempt?provider=<p>          → { attemptID, status: pending|complete|failed|expired, message? }
 POST   /auth/login/:attempt/complete  { provider, code? }   # flujos "code" o pegar la URL del redirect
 DELETE /auth/login/:attempt?provider=<p>          # cancela y libera el listener
@@ -104,7 +106,7 @@ reinicios. `--local` loguea con el motor embebido del propio comando; sin `--loc
 packages/core    → Hono: rutas OpenAI (SSE incremental) + /auth/* (login vía Integration) + bridges:
                     CoreBridge (in-process, @opencode/core vía Engine) y OpencodeBridge (HTTP legado)
 packages/fleet   → home/XDG aislado (~/.fleetproxy), resolución del binario (auth legacy), flota (hito 3)
-cli              → fleetproxy serve | models | login | auth
+cli              → fleetproxy serve | models | login | providers | auth
 scripts/         → get-engine.ts: vendoriza el binario del motor a ./engine (para `auth` local)
 spike/           → scripts del spike de arquitectura core-in-process (documentación ejecutable)
 ```

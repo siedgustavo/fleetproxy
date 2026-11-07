@@ -55,6 +55,14 @@ export type EngineLoginStatus =
   | { status: "failed"; message?: string }
   | { status: "expired" };
 
+/** Provider registrado en Integration: métodos de auth disponibles + conexiones activas. */
+export interface EngineProviderInfo {
+  id: string;
+  name: string;
+  methods: { id: string; type: string }[];
+  connections: { type: string; label?: string; name?: string }[];
+}
+
 export type LoginErrorKind =
   | "provider-not-found"
   | "no-oauth-method"
@@ -91,6 +99,8 @@ export interface Engine {
   /** Completa un attempt mode "code" (o auto con paste) usando el code/URL del redirect. */
   loginComplete(provider: string, attemptID: string, code?: string): Promise<void>;
   loginCancel(provider: string, attemptID: string): Promise<void>;
+  /** Proveedores de auth registrados (Integration.list): qué se puede loguear y qué está conectado. */
+  providers(): Promise<EngineProviderInfo[]>;
   close(): Promise<void>;
 }
 
@@ -347,6 +357,25 @@ export async function startEngine(options: EngineOptions = {}): Promise<Engine> 
     });
   }
 
+  async function providers(): Promise<EngineProviderInfo[]> {
+    const infos = await withIntegration<readonly Record<string, any>[]>((integration) => integration.list());
+    return infos
+      .map((info) => ({
+        id: String(info.id ?? ""),
+        name: typeof info.name === "string" ? info.name : String(info.id ?? ""),
+        methods: (info.methods ?? [])
+          .map((m: Record<string, unknown>) => ({ id: String(m.id ?? ""), type: String(m.type ?? "") }))
+          .filter((m: { id: string }) => m.id),
+        connections: (info.connections ?? []).map((c: Record<string, unknown>) => ({
+          type: String(c.type ?? ""),
+          ...(typeof c.label === "string" ? { label: c.label } : {}),
+          ...(typeof c.name === "string" ? { name: c.name } : {}),
+        })),
+      }))
+      .filter((p) => p.id)
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
+
   return {
     models,
     ask,
@@ -354,6 +383,7 @@ export async function startEngine(options: EngineOptions = {}): Promise<Engine> 
     loginStatus,
     loginComplete,
     loginCancel,
+    providers,
     close: async () => {
       await runtime.dispose().catch(() => undefined);
     },
