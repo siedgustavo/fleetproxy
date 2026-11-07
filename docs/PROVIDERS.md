@@ -1,3 +1,7 @@
+---
+layout: default
+---
+
 # Providers soportados
 
 fleetproxy no conoce proveedores: expone el catálogo de [opencode](https://opencode.ai) y su

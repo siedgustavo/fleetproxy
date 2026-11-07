@@ -1,0 +1,10 @@
+# GitHub Pages (Jekyll clásico): la home es el README y docs/PROVIDERS.md es la
+# página de providers. jekyll-relative-links reescribe los links relativos a
+# .md para que funcionen también en el sitio renderizado.
+theme: jekyll-theme-cayman
+title: fleetproxy
+description: Tus suscripciones de LLM en un solo endpoint OpenAI (~236 providers sobre el runtime de opencode)
+show_downloads: false
+markdown: kramdown
+plugins:
+  - jekyll-relative-links

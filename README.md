@@ -1,3 +1,8 @@
+---
+layout: default
+permalink: /index.html
+---
+
 # fleetproxy
 
 **Tus suscripciones de LLM, un solo endpoint OpenAI.** Sin que nadie escriba código de proveedor:
