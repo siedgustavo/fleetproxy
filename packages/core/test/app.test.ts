@@ -139,6 +139,41 @@ describe("API key (token de serve)", () => {
   });
 });
 
+describe("POST /v1/chat/completions stream=true (deltas incremental)", () => {
+  // Bridge minimal que emite varios deltas por onDelta.
+  const streamingBridge = {
+    async catalog() {
+      return [{ id: "fix/m", providerID: "fix", modelID: "m" }];
+    },
+    async chat() {
+      return { text: "hola mundo", usage: { input: 1, output: 2, total: 3 } };
+    },
+    async stream(_params: never, onDelta?: (d: string) => void) {
+      onDelta?.("hola ");
+      onDelta?.("mundo");
+      return { text: "hola mundo", usage: { input: 1, output: 2, total: 3 } };
+    },
+  };
+
+  test("cada delta sale en su chunk y el usage va al final", async () => {
+    const app = createApp({ bridge: streamingBridge as never });
+    const res = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "fix/m", stream: true, messages: [{ role: "user", content: "hi" }] }),
+    });
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    const text = await res.text();
+    const dataLines = text.split("\n").filter((l) => l.startsWith("data: ") && !l.includes("[DONE]"));
+    const contents = dataLines
+      .map((l) => JSON.parse(l.slice(6)).choices?.[0]?.delta?.content)
+      .filter((c) => typeof c === "string");
+    expect(contents).toEqual(["hola ", "mundo"]); // un chunk por delta, no uno solo
+    expect(dataLines.some((l) => l.includes('"usage"'))).toBe(true);
+    expect(text.trim().endsWith("data: [DONE]")).toBe(true);
+  });
+});
+
 describe("proxy de OAuth (/auth/callback)", () => {
   test("sin oauthProxy la ruta no existe", async () => {
     expect((await makeApp().request("/auth/callback?code=x")).status).toBe(404);

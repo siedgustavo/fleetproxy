@@ -9,21 +9,27 @@ En Docker/cluster, `url` (o `FLEETPROXY_URL`) hace que los OAuth del motor vuelv
 `oauth.callbackPort`), sin depender de un `127.0.0.1` que el browser no ve.
 
 ```
-cliente OpenAI ──HTTP──▶ fleetproxy ──HTTP /api/*──▶ motor opencode ──▶ módulos de la comunidad ──▶ LLM
-                         (façade, flota)             (dependencia        (opencode-ai + plugins:
-                                                       empaquetada)        auth, catálogo, providers)
+cliente OpenAI ──HTTP──▶ fleetproxy ──en proceso──▶ @opencode/core ──▶ plugins de provider ──▶ LLM
+                         (façade Hono +            (runtime opencode    (auth OAuth, catálogo
+                          bridge CoreBridge)         como librería)       models.dev, providers)
 ```
+
+> Desde `v0.2` el motor corre **in-process** como librería (`@opencode/core` + `@opencode/ai`), sin el
+> binario `opencode serve`. El faça hace **una sola llamada al proveedor** por request, con el `system`
+> y los roles del historial tal cuales (sin system prompt ni agent loop del runtime). El binario del
+> motor queda solo para el `fleetproxy login` interactivo; con `opencode.url` sigue habiendo un bridge
+> HTTP legado contra un `opencode serve` remoto.
 
 ## Provider-agnóstico
 
-fleetproxy **no conhece proveedores**: habla con el server de opencode y expone lo que ese server
-pueda hacer. Los providers (GitHub Copilot, GitLab, OpenAI, Anthropic, Ollama, o el módulo que la
+fleetproxy **no conhece proveedores**: usa el runtime de opencode como librería y expone lo que sus
+módulos puedan hacer. Los providers (GitHub Copilot, GitLab, OpenAI, Anthropic, Ollama, o el módulo que la
 comunidad publique en el ecosistema opencode) se autentican y configuran **dentro de la app**:
 
-- El motor es un build de [opencode](https://github.com/anomalyco/opencode): la imagen Docker lo
-  **vendoriza desde un release de GitHub** (pin `OPENCODE_ENGINE_VERSION`, hoy `2.2.4`) y en el repo
-  de desarrollo lo provee el paquete npm [`opencode-ai`](https://www.npmjs.com/package/opencode-ai).
-  No hace falta tener opencode en la máquina.
+- `@opencode/core` trae los providers built-in (plugins internos: gitlab, github-copilot, openai, …) con
+  su auth y su catálogo models.dev; `opencode-ai` (npm) provee el **binario** solo para `login`, y la
+  imagen Docker lo **vendoriza desde un release de GitHub** (`OPENCODE_ENGINE_VERSION`, alineado a la
+  versión del core — mismo storage comparten). No hace falta tener opencode en la máquina.
 - Todo queda contenido en `~/.fleetproxy` (data, logins, config): nada se comparte con un
   opencode del sistema.
 - `fleetproxy login` corre el auth-flow del motor dentro de esa casa.
@@ -41,7 +47,7 @@ curl http://localhost:8787/v1/chat/completions \
 
 ```bash
 bun install
-bun cli/src/index.ts serve        # spawnea el motor empaquetado; proxy en :8787
+bun cli/src/index.ts serve        # levanta el motor in-process; proxy en :8787
 bun cli/src/index.ts models       # catálogo actual
 bun cli/src/index.ts login        # auth-flow de un provider (interactivo)
 ```
@@ -49,11 +55,11 @@ bun cli/src/index.ts login        # auth-flow de un provider (interactivo)
 `fleetproxy.json` (opcional):
 
 ```json
-{ "port": 8787, "opencode": { "url": "http://127.0.0.1:4096" } }
+{ "port": 8787, "token": "sk-…", "url": "https://…", "opencode": { "url": "http://127.0.0.1:4096" } }
 ```
 
-Sin `opencode.url` se spawnea el motor empaquetado; con url, fleetproxy se **attacha** a ese
-server (otro proceso, otra máquina) y no necesita binario alguno.
+Sin `opencode.url` el motor corre **in-process** (`@opencode/core`). Con `opencode.url`, fleetproxy usa
+el bridge HTTP legado contra ese server opencode (otro proceso, otra máquina).
 
 ## Docker
 
@@ -66,14 +72,17 @@ docker run --rm -it -v fleetproxy-home:/home/fleetproxy/.fleetproxy \
   ghcr.io/siedgustavo/fleetproxy:latest bun cli/src/index.ts login
 ```
 
-La imagen trae el motor adentro; el volumen guarda logins y config entre reinicios.
+El serve no necesita binario (el core va en `node_modules`); el volumen guarda logins y config entre
+reinicios, y el binario vendorizado se usa para el `login` dentro del contenedor.
 
 ## Monorepo
 
 ```
-packages/core    → Hono: rutas OpenAI + bridge/HTTP client contra /api/* del motor
-packages/fleet   → supervisor del motor: spawn aislado (~/.fleetproxy) o attach; flota (hito 3)
+packages/core    → Hono: rutas OpenAI (SSE incremental) + bridges al motor:
+                   CoreBridge (in-process, @opencode/core vía Engine) y OpencodeBridge (HTTP legado)
+packages/fleet   → home/XDG aislado (~/.fleetproxy), resolución del binario (login), flota (hito 3)
 cli              → fleetproxy serve | models | login
+spike/           → scripts del spike de arquitectura core-in-process (documentación ejecutable)
 ```
 
 ## Tests

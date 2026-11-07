@@ -4,11 +4,6 @@
   "workspaces": {
     "": {
       "name": "fleetproxy",
-      "dependencies": {
-        "@opencode/ai": "2.2.6",
-        "@opencode/core": "^2.2.6",
-        "effect": "4.1.0",
-      },
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5.7.0",
@@ -29,6 +24,9 @@
       "name": "@fleetproxy/core",
       "version": "0.0.1",
       "dependencies": {
+        "@opencode/ai": "2.2.6",
+        "@opencode/core": "^2.2.6",
+        "effect": "4.1.0",
         "hono": "^4.13.16",
       },
       "devDependencies": {
