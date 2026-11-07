@@ -9,7 +9,8 @@
   "scripts": {
     "dev": "bun cli/src/index.ts serve",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "engine:get": "bun scripts/get-engine.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

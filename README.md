@@ -61,6 +61,10 @@ bun cli/src/index.ts login        # auth-flow de un provider (interactivo)
 Sin `opencode.url` el motor corre **in-process** (`@opencode/core`). Con `opencode.url`, fleetproxy usa
 el bridge HTTP legado contra ese server opencode (otro proceso, otra máquina).
 
+> `fleetproxy login` necesita un binario de la **misma línea** que el core (el storage 1.x de npm
+> `opencode-ai@1.19.5` no lo lee `@opencode/core` 2.x). En Docker ya se vendoriza en la build; en desarrollo
+> local corré `bun run engine:get` (baja el release de GitHub a `./engine`, que `resolveOpencodeBin` prioriza).
+
 ## Docker
 
 ```bash
@@ -82,6 +86,7 @@ packages/core    → Hono: rutas OpenAI (SSE incremental) + bridges al motor:
                    CoreBridge (in-process, @opencode/core vía Engine) y OpencodeBridge (HTTP legado)
 packages/fleet   → home/XDG aislado (~/.fleetproxy), resolución del binario (login), flota (hito 3)
 cli              → fleetproxy serve | models | login
+scripts/         → get-engine.ts: vendoriza el binario del motor a ./engine (para login local)
 spike/           → scripts del spike de arquitectura core-in-process (documentación ejecutable)
 ```
 
