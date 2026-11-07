@@ -15,6 +15,7 @@
   "include": [
     "packages/*/src",
     "packages/*/test",
-    "cli/src"
+    "cli/src",
+    "cli/test"
   ]
 }

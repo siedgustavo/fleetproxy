@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -98,41 +98,6 @@ function engineMissingError(bin?: string): Error {
       "  - Reinstalá las dependencias de fleetproxy (el paquete `opencode-ai` trae el binario).\n" +
       '  - O adjuntá un server existente: { "opencode": { "url": "http://..." } } en fleetproxy.json.',
   );
-}
-
-/**
- * Configuración del OAuth del motor para deploys headless (Docker/cluster):
- * los flujos pkce del motor escuchan el callback en 127.0.0.1:<puerto> que
- * nadie ve desde el browser. Fijando `callbackPort` (puerto conocido) y
- * poniendo `redirectUri` = <url pública>/auth/callback, el browser vuelve a
- * la app y fleetproxy reenvía el /auth/callback al proceso de login.
- * Mergea sin pisar el resto de la config del home (provider, plugin, etc.).
- */
-export function applyOauthEngineConfig(opts: {
-  home?: string;
-  providers: string[];
-  callbackPort: number;
-  redirectUri: string;
-}): string {
-  const home = opts.home ?? fleetHome();
-  const file = join(fleetEnv(home).XDG_CONFIG_HOME, "opencode", "opencode.json");
-  let cfg: Record<string, any> = {};
-  if (existsSync(file)) {
-    try {
-      cfg = JSON.parse(readFileSync(file, "utf8")) as Record<string, any>;
-    } catch {
-      throw new Error(`fleetproxy: no se pudo parsear la config del motor en ${file}`);
-    }
-  }
-  const providers = (cfg.provider ??= {});
-  for (const id of opts.providers) {
-    const entry = (providers[id] ??= {}) as Record<string, any>;
-    entry.options = { ...(entry.options ?? {}) };
-    entry.options.oauth = { ...(entry.options.oauth ?? {}), callbackPort: opts.callbackPort, redirectUri: opts.redirectUri };
-  }
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`);
-  return file;
 }
 
 /**

@@ -1,5 +1,9 @@
 import { Hono, type Context } from "hono";
 import { ModelNotFoundError, UpstreamError, type Bridge, type ChatResult } from "./bridge";
+import { LoginError, type Engine } from "./engine";
+
+/** Superficie de login OAuth del motor (Engine es la implementación real). */
+export type AuthApi = Pick<Engine, "login" | "loginStatus" | "loginComplete" | "loginCancel">;
 
 export interface CreateAppOptions {
   bridge: Bridge;
@@ -10,12 +14,11 @@ export interface CreateAppOptions {
    */
   apiToken?: string;
   /**
-   * Proxy del callback OAuth (deploy headless): recibe /auth/callback del
-   * browser y lo reenvía al proceso de login del motor (127.0.0.1:<puerto
-   * fijo>). Sin proxy definido la ruta no existe. No va tras el token:
-   * la seguridad del flujo la dan state+PKCE del provider.
+   * Login OAuth in-process (Integration.Service del motor). Define /auth/login*
+   * (bajo el token) y /auth/callback (GET, para el browser: la seguridad del
+   * flujo la dan state+PKCE del provider). Sin `auth` las rutas no existen.
    */
-  oauthProxy?: (req: Request) => Promise<Response>;
+  auth?: AuthApi;
 }
 
 function openAIError(message: string, type = "invalid_request_error", code?: string) {
@@ -38,6 +41,27 @@ function usageOf(result: ChatResult) {
     completion_tokens: result.usage.output,
     total_tokens: result.usage.total,
   };
+}
+
+/** Mapea LoginError del motor a un HTTP status con shape OpenAI. */
+function loginErrorResponse(c: Context, error: unknown): Response {
+  if (error instanceof LoginError) {
+    const type = error.kind === "authorization-failed" ? "api_error" : "invalid_request_error";
+    const status =
+      error.kind === "provider-not-found" || error.kind === "attempt-not-found"
+        ? 404
+        : error.kind === "authorization-failed"
+          ? 502
+          : 400;
+    return c.json(openAIError(error.message, type, error.kind), status);
+  }
+  throw error;
+}
+
+function loginPage(title: string, body: string): string {
+  return `<!doctype html><meta charset="utf-8"><title>fleetproxy · ${title}</title>
+<body style="font-family:system-ui;margin:4rem auto;max-width:32rem;text-align:center">
+<h1>${title}</h1><p>${body}</p></body>`;
 }
 
 /**
@@ -93,28 +117,10 @@ function sseResponse(params: {
   });
 }
 
-export function createApp({ bridge, apiToken, oauthProxy }: CreateAppOptions): Hono {
+export function createApp({ bridge, apiToken, auth }: CreateAppOptions): Hono {
   const app = new Hono();
 
   app.get("/health", (c) => c.json({ ok: true }));
-
-  if (oauthProxy) {
-    app.all("/auth/callback", async (c) => {
-      try {
-        return await oauthProxy(c.req.raw);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        return c.json(
-          openAIError(
-            `OAuth callback sin destino (${msg}). ¿Hay un "fleetproxy login <provider>" esperando en el callbackPort?`,
-            "api_error",
-            "oauth_callback_unavailable",
-          ),
-          502,
-        );
-      }
-    });
-  }
 
   const requireToken = async (c: Context, next: () => Promise<void>) => {
     if (!apiToken) return next();
@@ -126,6 +132,87 @@ export function createApp({ bridge, apiToken, oauthProxy }: CreateAppOptions): H
   app.use("/v1/*", requireToken);
   app.use("/models", requireToken);
   app.use("/chat/completions", requireToken);
+
+  if (auth) {
+    app.use("/auth/login", requireToken);
+    app.use("/auth/login/*", requireToken);
+
+    // El browser no trae el Bearer: /auth/callback va fuera del token.
+    const bodyProvider = (body: Record<string, unknown> | null): string =>
+      typeof body?.provider === "string" ? body.provider : "";
+
+    app.post("/auth/login", async (c) => {
+      const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+      const provider = bodyProvider(body);
+      if (!provider) return c.json(openAIError("Se requiere 'provider' en el body (p. ej. \"github-copilot\")"), 400);
+      const answer =
+        body?.answer !== null && typeof body?.answer === "object"
+          ? Object.fromEntries(Object.entries(body.answer as Record<string, unknown>).map(([k, v]) => [k, String(v)]))
+          : undefined;
+      try {
+        return c.json(
+          await auth.login(provider, typeof body?.method === "string" ? body.method : undefined, answer),
+        );
+      } catch (error) {
+        return loginErrorResponse(c, error);
+      }
+    });
+
+    app.get("/auth/login/:attempt", async (c) => {
+      const provider = c.req.query("provider") ?? "";
+      const attempt = c.req.param("attempt") ?? "";
+      if (!provider) return c.json(openAIError("Falta el query 'provider'"), 400);
+      try {
+        return c.json({ attemptID: attempt, ...(await auth.loginStatus(provider, attempt)) });
+      } catch (error) {
+        return loginErrorResponse(c, error);
+      }
+    });
+
+    app.post("/auth/login/:attempt/complete", async (c) => {
+      const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+      const provider = bodyProvider(body);
+      const attempt = c.req.param("attempt") ?? "";
+      if (!provider) return c.json(openAIError("Se requiere 'provider' en el body"), 400);
+      try {
+        await auth.loginComplete(provider, attempt, typeof body?.code === "string" ? body.code : undefined);
+        return c.json({ attemptID: attempt, ...(await auth.loginStatus(provider, attempt)) });
+      } catch (error) {
+        return loginErrorResponse(c, error);
+      }
+    });
+
+    app.delete("/auth/login/:attempt", async (c) => {
+      const provider = c.req.query("provider") ?? "";
+      const attempt = c.req.param("attempt") ?? "";
+      if (!provider) return c.json(openAIError("Falta el query 'provider'"), 400);
+      try {
+        await auth.loginCancel(provider, attempt);
+        return c.json({ ok: true });
+      } catch (error) {
+        return loginErrorResponse(c, error);
+      }
+    });
+
+    // Redirect del browser para flujos code/PKCE (o para pegar la URL del
+    // redirect cuando el listener loopback del provider no es alcanzable).
+    app.get("/auth/callback", async (c) => {
+      const provider = c.req.query("provider") ?? "";
+      const attempt = c.req.query("attempt") ?? "";
+      const code = c.req.query("code") ?? "";
+      if (!provider || !attempt) return c.json(openAIError("Faltan los query 'provider' y 'attempt'"), 400);
+      try {
+        await auth.loginComplete(provider, attempt, code || undefined);
+        return c.html(loginPage("Login completado", `Podés cerrar esta pestaña (${provider}).`));
+      } catch (error) {
+        // Un attempt "auto" ya puede estar resolviendo solo (polling/listener).
+        if (error instanceof Error && /already completing/i.test(error.message)) {
+          return c.html(loginPage("Login en curso", `El attempt ya estaba resolviendo solo (${provider}).`));
+        }
+        return loginErrorResponse(c, error);
+      }
+    });
+  }
 
   const modelsHandler = async (c: Context) => {
     const models = await bridge.catalog();

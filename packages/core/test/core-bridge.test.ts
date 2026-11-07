@@ -26,6 +26,12 @@ function fakeEngine(overrides: Partial<Engine> = {}) {
       for (const piece of ["Ho", "la"]) onDelta?.(piece);
       return { text: "Hola", usage: { input: 11, output: 2, total: 13 } };
     },
+    login: async () => {
+      throw new Error("login no lo usa CoreBridge");
+    },
+    loginStatus: async () => ({ status: "pending" as const }),
+    loginComplete: async () => {},
+    loginCancel: async () => {},
     async close() {},
     ...overrides,
   };

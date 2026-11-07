@@ -1,4 +1,4 @@
-export { createApp, type CreateAppOptions } from "./app";
+export { createApp, type AuthApi, type CreateAppOptions } from "./app";
 export { OpencodeApiClient, OpencodeHttpError, type OpencodeApiClientConfig } from "./client";
 export {
   ModelNotFoundError,
@@ -12,4 +12,15 @@ export {
   type OpenAIChatMessage,
 } from "./bridge";
 export { CoreBridge, openaiToTurns, type CoreBridgeOptions } from "./core-bridge";
-export { startEngine, type Engine, type EngineAskParams, type EngineModelInfo, type EngineOptions, type EngineTurn } from "./engine";
+export {
+  startEngine,
+  LoginError,
+  type Engine,
+  type EngineAskParams,
+  type EngineLoginAttempt,
+  type EngineLoginStatus,
+  type EngineModelInfo,
+  type EngineOptions,
+  type EngineTurn,
+  type LoginErrorKind,
+} from "./engine";

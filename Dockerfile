@@ -9,8 +9,9 @@ COPY packages/core/package.json ./packages/core/
 COPY packages/fleet/package.json ./packages/fleet/
 RUN bun install --frozen-lockfile
 
-# Motor vendorizado: binario de un release de opencode, usado HOY SOLO PARA
-# `fleetproxy login` (el auth interactivo del proveedor). El serve corre
+# Motor vendorizado: binario de un release de opencode, usado solo para
+# `fleetproxy auth` (legacy) y los tests de integración — el login OAuth corre
+# in-process desde v0.2.2 (servicio Integration del core). El serve corre
 # @opencode/core IN-PROCESS (mismo versionado: el binario escribe el storage
 # que el core lee, y viceversa → mantener ambos en la misma versión X.Y.Z).
 # Sin curl en la base: se descarga con el propio bun.

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { OpencodeBridge } from "../src";
 import { createApp } from "../src/app";
+import { LoginError } from "../src/engine";
 import { fakeApi } from "./bridge.test";
 
 function makeApp() {
@@ -174,38 +175,140 @@ describe("POST /v1/chat/completions stream=true (deltas incremental)", () => {
   });
 });
 
-describe("proxy de OAuth (/auth/callback)", () => {
-  test("sin oauthProxy la ruta no existe", async () => {
-    expect((await makeApp().request("/auth/callback?code=x")).status).toBe(404);
+describe("login OAuth in-process (/auth/*)", () => {
+  interface FakeAuthState {
+    pending: boolean;
+    completeError?: Error;
+    recorder: string[];
+  }
+  const makeAuth = (state: FakeAuthState) => ({
+    async login(provider: string, method?: string, answer?: Record<string, string>) {
+      state.recorder.push(`login:${provider}:${method ?? "-"}`);
+      if (provider === "desconocido") throw new LoginError("provider-not-found", `provider desconocido: ${provider}`);
+      if (provider === "sin_metodo") throw new LoginError("no-oauth-method", "gitlab no tiene método oauth");
+      if (provider === "pide_form") throw new LoginError("form-required", "faltan campos: domain (pasalos con answer/--field)");
+      return {
+        provider,
+        method: method ?? "device",
+        attemptID: "att-9",
+        url: "https://github.com/login/device",
+        instructions: "Enter code: WXYZ",
+        mode: "auto" as const,
+        answer: answer ?? { deploymentType: "github.com" },
+      };
+    },
+    async loginStatus() {
+      return state.pending ? { status: "pending" as const } : { status: "complete" as const };
+    },
+    async loginComplete(_provider: string, attemptID: string) {
+      if (state.completeError) throw state.completeError;
+      state.recorder.push(`complete:${attemptID}`);
+      state.pending = false;
+    },
+    async loginCancel() {
+      state.recorder.push("cancel");
+    },
   });
 
-  test("reenvía query y method al server de login y devuelve su respuesta", async () => {
-    let seen: { url: string; method: string } | null = null;
-    const app = createApp({
-      bridge: new OpencodeBridge(fakeApi()),
-      oauthProxy: async (req) => {
-        seen = { url: req.url, method: req.method };
-        return new Response("<html>listo</html>", { status: 200, headers: { "content-type": "text/html" } });
-      },
+  const makeAuthApp = (state: FakeAuthState, apiToken?: string) =>
+    createApp({ bridge: new OpencodeBridge(fakeApi()), apiToken, auth: makeAuth(state) });
+
+  test("sin `auth` las rutas de login no existen", async () => {
+    expect((await makeApp().request("/auth/login", { method: "POST" })).status).toBe(404);
+    expect((await makeApp().request("/auth/callback")).status).toBe(404);
+  });
+
+  test("POST /auth/login inicia el attempt y devuelve url + instrucciones", async () => {
+    const state: FakeAuthState = { pending: true, recorder: [] };
+    const res = await makeAuthApp(state).request("/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "github-copilot", method: "device" }),
     });
-    const res = await app.request("/auth/callback?code=abc&state=xyz", { method: "POST", body: "k=v" });
     expect(res.status).toBe(200);
-    expect(await res.text()).toBe("<html>listo</html>");
-    expect(seen!.url).toContain("/auth/callback?code=abc&state=xyz");
-    expect(seen!.method).toBe("POST");
+    expect(await res.json()).toEqual({
+      provider: "github-copilot",
+      method: "device",
+      attemptID: "att-9",
+      url: "https://github.com/login/device",
+      instructions: "Enter code: WXYZ",
+      mode: "auto",
+      answer: { deploymentType: "github.com" },
+    });
+    expect(state.recorder).toEqual(["login:github-copilot:device"]);
   });
 
-  test("502 con shape OpenAI cuando no hay ningún login escuchando", async () => {
-    const app = createApp({
-      bridge: new OpencodeBridge(fakeApi()),
-      oauthProxy: async () => {
-        throw new TypeError("ECONNREFUSED");
-      },
+  test("provider faltante → 400; desconocido → 404; sin método → 400; form requerido → 400", async () => {
+    const state: FakeAuthState = { pending: true, recorder: [] };
+    const app = makeAuthApp(state);
+    const post = (body: unknown) =>
+      app.request("/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    expect((await post({})).status).toBe(400);
+    const notFound = await post({ provider: "desconocido" });
+    expect(notFound.status).toBe(404);
+    expect(((await notFound.json()) as { error: { code: string } }).error.code).toBe("provider-not-found");
+    expect((await post({ provider: "sin_metodo" })).status).toBe(400);
+    const formRequired = await post({ provider: "pide_form" });
+    expect(formRequired.status).toBe(400);
+    expect(((await formRequired.json()) as { error: { code: string } }).error.code).toBe("form-required");
+  });
+
+  test("status, complete y cancel del attempt", async () => {
+    const state: FakeAuthState = { pending: true, recorder: [] };
+    const app = makeAuthApp(state);
+    const status = await app.request("/auth/login/att-9?provider=github-copilot");
+    expect(await status.json()).toEqual({ attemptID: "att-9", status: "pending" });
+    const done = await app.request("/auth/login/att-9/complete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "github-copilot", code: "CODE" }),
     });
-    const res = await app.request("/auth/callback");
-    expect(res.status).toBe(502);
-    const body = (await res.json()) as { error: { message: string; code: string } };
-    expect(body.error.code).toBe("oauth_callback_unavailable");
-    expect(body.error.message).toContain("fleetproxy login");
+    expect(done.status).toBe(200);
+    expect(await done.json()).toEqual({ attemptID: "att-9", status: "complete" });
+    expect((await app.request("/auth/login/att-9?provider=github-copilot", { method: "DELETE" })).status).toBe(200);
+    expect(state.recorder).toEqual(["complete:att-9", "cancel"]);
+    // attempt inexistente (LoginError attempt-not-found) → 404
+    const state2: FakeAuthState = {
+      pending: true,
+      recorder: [],
+      completeError: new LoginError("attempt-not-found", "intent inexistente"),
+    };
+    const notFound = await makeAuthApp(state2).request("/auth/login/otro/complete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "x" }),
+    });
+    expect(notFound.status).toBe(404);
+    expect(((await notFound.json()) as { error: { code: string } }).error.code).toBe("attempt-not-found");
+  });
+
+  test("bajo token: /auth/login exige Bearer pero /auth/callback no", async () => {
+    const state: FakeAuthState = { pending: true, recorder: [] };
+    const app = makeAuthApp(state, "sk-test");
+    expect((await app.request("/auth/login", { method: "POST", body: "{}" })).status).toBe(401);
+    expect(
+      (
+        await app.request("/auth/login/att-9?provider=x", { headers: { authorization: "Bearer sk-test" } })
+      ).status,
+    ).toBe(200);
+    expect((await app.request("/auth/callback?provider=x&attempt=att-9&code=K")).status).toBe(200);
+  });
+
+  test("GET /auth/callback completa con el code y devuelve HTML; faltan params → 400", async () => {
+    const state: FakeAuthState = { pending: true, recorder: [] };
+    const app = makeAuthApp(state);
+    const res = await app.request("/auth/callback?provider=gitlab&attempt=att-9&code=THECODE");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(await res.text()).toContain("Login completado");
+    expect(state.recorder).toEqual(["complete:att-9"]);
+    expect((await app.request("/auth/callback")).status).toBe(400);
+  });
+
+  test("/auth/callback sobre un attempt auto que ya se resuelve solo no rompe", async () => {
+    const state: FakeAuthState = { pending: true, recorder: [], completeError: new Error("OAuth attempt already completing: att-9") };
+    const res = await makeAuthApp(state).request("/auth/callback?provider=x&attempt=att-9&code=K");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Login en curso");
   });
 });
