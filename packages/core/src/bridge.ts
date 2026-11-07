@@ -33,6 +33,18 @@ export class UpstreamError extends Error {
   }
 }
 
+/**
+ * Contrato del bridge que consume el façade (app.ts). Dos implementaciones:
+ *   - OpencodeBridge: server `opencode serve` por HTTP (legado / opencode.url)
+ *   - CoreBridge: @opencode/core in-process (sin binario)
+ * `stream` es opcional: sin ella el façade manda el texto completo de una.
+ */
+export interface Bridge {
+  catalog(forceRefresh?: boolean): Promise<CatalogModel[]>;
+  chat(params: { model: string; messages: OpenAIChatMessage[] }): Promise<ChatResult>;
+  stream?(params: { model: string; messages: OpenAIChatMessage[] }, onDelta?: (delta: string) => void): Promise<ChatResult>;
+}
+
 interface ServerMessage {
   type?: string;
   outcome?: string;
@@ -40,7 +52,7 @@ interface ServerMessage {
   content?: Array<{ type?: string; text?: string }>;
 }
 
-function textOf(content: unknown): string {
+export function textOf(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     return content
@@ -68,6 +80,25 @@ export interface BridgeOptions {
    * motor no lo tiene, se cae al default del motor sin error.
    */
   agent?: string;
+}
+
+/**
+ * Resuelve el id OpenAI ("provider/model" o "provider") contra el catálogo.
+ * Compartido por los dos bridges: si el provider existe pero el modelo no,
+ * confiamos igual (modelos nuevos que el catálogo no enumera).
+ */
+export function pickModel(models: CatalogModel[], rawModel: string): { providerID: string; modelID: string } {
+  const slash = rawModel.indexOf("/");
+  if (slash > 0) {
+    const providerID = rawModel.slice(0, slash);
+    const modelID = rawModel.slice(slash + 1);
+    if (models.some((m) => m.providerID === providerID && m.modelID === modelID)) return { providerID, modelID };
+    if (models.some((m) => m.providerID === providerID)) return { providerID, modelID };
+    throw new ModelNotFoundError(rawModel);
+  }
+  const providerOnly = models.filter((m) => m.providerID === rawModel);
+  if (providerOnly.length > 0) return { providerID: rawModel, modelID: providerOnly[0].modelID };
+  throw new ModelNotFoundError(rawModel);
 }
 
 /**
@@ -133,20 +164,7 @@ export class OpencodeBridge {
 
   async resolve(rawModel: string): Promise<{ providerID: string; modelID: string }> {
     const models = await this.catalog();
-    const slash = rawModel.indexOf("/");
-    if (slash > 0) {
-      const providerID = rawModel.slice(0, slash);
-      const modelID = rawModel.slice(slash + 1);
-      if (models.some((m) => m.providerID === providerID && m.modelID === modelID)) {
-        return { providerID, modelID };
-      }
-      // Confiamos en el provider aunque el catálogo no enumere el modelo.
-      if (models.some((m) => m.providerID === providerID)) return { providerID, modelID };
-      throw new ModelNotFoundError(rawModel);
-    }
-    const providerOnly = models.filter((m) => m.providerID === rawModel);
-    if (providerOnly.length > 0) return { providerID: rawModel, modelID: providerOnly[0].modelID };
-    throw new ModelNotFoundError(rawModel);
+    return pickModel(models, rawModel);
   }
 
   /**

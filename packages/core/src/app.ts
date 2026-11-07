@@ -1,8 +1,8 @@
 import { Hono, type Context } from "hono";
-import { ModelNotFoundError, OpencodeBridge, UpstreamError, type ChatResult } from "./bridge";
+import { ModelNotFoundError, UpstreamError, type Bridge, type ChatResult } from "./bridge";
 
 export interface CreateAppOptions {
-  bridge: OpencodeBridge;
+  bridge: Bridge;
   /**
    * API key estilo OpenAI: si está definida, toda ruta /v1/* (y los alias
    * legacy) exige `Authorization: Bearer <token>`; sin definir, el server es
@@ -41,17 +41,16 @@ function usageOf(result: ChatResult) {
 }
 
 /**
- * v0: la respuesta llega completa (prompt() de opencode es blocking por request);
- * el streaming增量 vía event.subscribe llega en un hito posterior. El formato
- * SSE es válido igual: role → contenido → finish → usage → [DONE].
+ * SSE incremental: si el bridge puede streamear, emite cada delta apenas llega
+ * (role → deltas… → finish → usage → [DONE]); si no, manda el texto de una.
  */
 function sseResponse(params: {
   id: string;
   created: number;
   model: string;
-  result: Promise<ChatResult>;
+  run: (onDelta: (delta: string) => void) => Promise<ChatResult>;
 }): Response {
-  const { id, created, model, result } = params;
+  const { id, created, model, run } = params;
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -65,10 +64,15 @@ function sseResponse(params: {
           choices: [{ index: 0, delta, finish_reason: finish }],
           ...extra,
         });
+      chunk({ role: "assistant" }, null);
+      let sawDelta = false;
       try {
-        const chat = await result;
-        chunk({ role: "assistant" }, null);
-        chunk({ content: chat.text }, null);
+        const chat = await run((delta) => {
+          if (!delta) return;
+          sawDelta = true;
+          chunk({ content: delta }, null);
+        });
+        if (!sawDelta && chat.text) chunk({ content: chat.text }, null);
         chunk({}, "stop");
         chunk({}, "stop", { usage: usageOf(chat) });
       } catch (error) {
@@ -152,7 +156,7 @@ export function createApp({ bridge, apiToken, oauthProxy }: CreateAppOptions): H
           id,
           created,
           model: body.model,
-          result: bridge.chat(request),
+          run: (onDelta) => (bridge.stream ? bridge.stream(request, onDelta) : bridge.chat(request)),
         });
       }
       const chat = await bridge.chat(request);
