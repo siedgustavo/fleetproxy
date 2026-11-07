@@ -27,6 +27,22 @@ const rss = (label: string) =>
   console.log(`[mem] ${label}: ${(process.memoryUsage.rss() / 1048576).toFixed(0)} Mi`);
 rss("post-import");
 
+// FP_LOG_REQ=1: tap del fetch para ver qué sale por el cable (largo del body + snippet).
+if (process.env.FP_LOG_REQ) {
+  const real = globalThis.fetch;
+  globalThis.fetch = async (input: any, init?: any) => {
+    const url = typeof input === "string" ? input : (input?.url ?? String(input));
+    const body = typeof init?.body === "string" ? init.body : undefined;
+    if (body) {
+      console.log(
+        `[req] ${init?.method ?? "GET"} ${url.slice(0, 110)} body=${body.length}b:`,
+        body.slice(0, 380).replace(/\s+/g, " "),
+      );
+    }
+    return real(input as any, init as any);
+  };
+}
+
 // Location.Ref = { directory: AbsolutePath, workspaceID? } — brand sin validación runtime acá.
 // El graph de Instance deja dos nodos unbound que el host (TUI/server) liga afuera:
 // Instance.Service (capacidades de sesión; nada del chat lo pide → stub) y
