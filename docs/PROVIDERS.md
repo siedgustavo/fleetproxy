@@ -58,7 +58,7 @@ generador). `—` en MÉTODOS = provider de API key por env.
 
 <!-- BEGIN providers-catalogo (autogenerado por scripts/gen-providers-doc.ts; no editar a mano) -->
 
-**236 providers** en el catálogo vivo de [models.dev](https://models.dev) (los que tienen
+**239 providers** en el catálogo vivo de [models.dev](https://models.dev) (los que tienen
 `·` en MÉTODOS se ligan con `fleetproxy login`; el resto toma su API key por env,
 p. ej. `GROQ_API_KEY`). Las conexiones activas del server que corre, en vivo:
 `fleetproxy providers` o `GET /auth/providers`.
@@ -145,6 +145,7 @@ p. ej. `GROQ_API_KEY`). Las conexiones activas del server que corre, en vivo:
 | `groq` | — |
 | `helicone` | — |
 | `hetzner` | — |
+| `hopper` | — |
 | `hpc-ai` | — |
 | `huggingface` | — |
 | `hyper` | — |
@@ -193,6 +194,7 @@ p. ej. `GROQ_API_KEY`). Las conexiones activas del server que corre, en vivo:
 | `model-oracle-ai` | — |
 | `modelis` | — |
 | `modelscope` | — |
+| `modular` | — |
 | `moonshotai` | — |
 | `moonshotai-cn` | — |
 | `morph` | — |
@@ -286,6 +288,7 @@ p. ej. `GROQ_API_KEY`). Las conexiones activas del server que corre, en vivo:
 | `vultr` | — |
 | `wafer.ai` | — |
 | `wallaby` | — |
+| `wally` | — |
 | `wandb` | — |
 | `watsonx` | — |
 | `xai` | `oauth:device` |
