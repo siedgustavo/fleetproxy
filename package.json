@@ -15,5 +15,12 @@
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "hono": "^4.13.16",
+    "@opencode/ai": "2.2.6",
+    "@opencode/core": "^2.2.6",
+    "effect": "4.1.0",
+    "@opencode/util": "2.2.6"
   }
 }

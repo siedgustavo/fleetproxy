@@ -59,29 +59,49 @@ export async function startEngine(options: EngineOptions = {}): Promise<Engine> 
   if (options.xdg?.stateHome) process.env.XDG_STATE_HOME = options.xdg.stateHome;
   process.env.OPENCODE_LOG_LEVEL ??= "WARN";
 
-  const [{ Effect, Layer, ManagedRuntime }, { ai }, { layer: instanceLayer }, serviceMod, locMod, modelMod, resolverMod, pluginMod] =
+  const [{ Effect, Layer, ManagedRuntime }, { ai }, { LayerNode }, nodeUtilMod, instanceMod, serviceMod, locMod, locationMod, dbMod, credMod, appMod, modelMod, resolverMod, pluginMod] =
     await Promise.all([
       import("effect"),
       import("@opencode/ai"),
+      import("@opencode/util/effect/layer-node"),
+      import("@opencode/util/effect/app-node"),
       import("@opencode/core/instance"),
       import("@opencode/core/instance/service"),
       import("@opencode/core/location-services"),
+      import("@opencode/core/location"),
+      import("@opencode/core/database/database"),
+      import("@opencode/core/credential"),
+      import("@opencode/core/app"),
       import("@opencode/core/model"),
       import("@opencode/core/model-resolver"),
       import("@opencode/core/plugin"),
     ]);
 
+  const directory = options.directory ?? process.cwd();
   const bindings = [
     serviceMod.Instance.node.replace(
       Layer.succeed(serviceMod.Instance.Service, { provide: (effect: never) => effect } as never) as never,
     ) as never,
   ];
-  const engineLayer = instanceLayer({ directory: options.directory ?? process.cwd() } as never, {
-    replacements: [
-      ...bindings,
-      locMod.LocationServiceMap.node.replace(locMod.buildLocationServiceMap(bindings) as never) as never,
-    ],
-  }) as never;
+  // El graph de Instance NO trae los nodos "global" que la app CLI sí enlaza:
+  // Credential (credenciales OAuth del db) y App. Además su Database por defecto
+  // es :memory: → hay que reemplazarlo por el archivo del home (opencode.db,
+  // relativo a Global.data = $XDG_DATA_HOME/opencode) o ninguna credenciales
+  // (p. ej. GitHub Copilot) aparece como conectada. El nodo Location va ligado
+  // al directorio (boundNode), igual que hacía Instance.layer por dentro.
+  const dbNamespace = (dbMod as Record<string, any>).Database ?? dbMod;
+  const engineLayer = LayerNode.compile(
+    LayerNode.group([instanceMod.graph, credMod.Credential.node, appMod.App.node] as never),
+    {
+      replacements: [
+        ...bindings,
+        locMod.LocationServiceMap.node.replace(locMod.buildLocationServiceMap(bindings) as never) as never,
+        locationMod.node.replace(locationMod.boundNode({ directory } as never) as never) as never,
+        dbNamespace.node.replace(dbNamespace.configured({ path: "opencode.db" })) as never,
+      ],
+      shared: (nodeUtilMod as any).Node.tags.values.global,
+    },
+  ) as never;
   const runtime = ManagedRuntime.make(engineLayer);
   const run = <T>(effect: unknown): Promise<T> => runtime.runPromise(effect as never) as Promise<T>;
 
