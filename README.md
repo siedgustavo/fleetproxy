@@ -32,6 +32,35 @@ comunidad publique en el ecosistema opencode) se autentican y configuran **dentr
 - `fleetproxy login <provider>` corre el auth-flow del motor dentro de esa casa: contra un fleetproxy
   corriendo (`--url`/`FLEETPROXY_URL`, lo normal en Docker/cluster) o embebido en el propio proceso.
 
+## Providers soportados: cómo se usan
+
+El catálogo es el de opencode (models.dev): **~238 providers**. Tres mecanismos de auth (listado
+completo y notas en [`docs/PROVIDERS.md`](docs/PROVIDERS.md)):
+
+1. **OAuth con `fleetproxy login <provider>`** — los ~11 con método de auth: device flow
+   (`github-copilot`, `opencode`, `xai` — andan remoto), browser/loopback (`digitalocean`, `poe`,
+   `snowflake-cortex`, `openai`, `gitlab` — mejor contra motor local o port-forward), y
+   credenciales externas del server (`amazon-bedrock` aws-profile, `google-vertex` ADC,
+   `claude-agent` claude-login).
+2. **API key por env** — el resto: se define la variable estándar del provider en el proceso de
+   `serve` (`GROQ_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, …; en Docker `-e`, en el
+   cluster `env`/Secret) y sus modelos aparecen solos en `/v1/models`.
+3. **Sin auth** — p. ej. los free de `opencode`.
+
+```bash
+fleetproxy providers            # qué se puede loguear y qué está conectado (métodos + conexiones)
+fleetproxy providers --all      # los ~238 del catálogo
+```
+
+Los ids de modelo son `providerID/modelID`, tal como los expone el catálogo:
+
+```bash
+curl http://localhost:8787/v1/models
+curl http://localhost:8787/v1/chat/completions \
+  -H "content-type: application/json" \
+  -d '{"model": "github-copilot/claude-sonnet-4.5", "messages": [{"role": "user", "content": "hola"}]}'
+```
+
 ## Login OAuth
 
 ```bash
@@ -107,6 +136,7 @@ packages/core    → Hono: rutas OpenAI (SSE incremental) + /auth/* (login vía 
                     CoreBridge (in-process, @opencode/core vía Engine) y OpencodeBridge (HTTP legado)
 packages/fleet   → home/XDG aislado (~/.fleetproxy), resolución del binario (auth legacy), flota (hito 3)
 cli              → fleetproxy serve | models | login | providers | auth
+docs/            → PROVIDERS.md: los ~238 providers del catálogo y cómo se autentica cada tipo
 scripts/         → get-engine.ts: vendoriza el binario del motor a ./engine (para `auth` local)
 spike/           → scripts del spike de arquitectura core-in-process (documentación ejecutable)
 ```
