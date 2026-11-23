@@ -4,17 +4,17 @@
  *
  * ¿Por qué?: el paquete npm `opencode-ai` sigue en 1.19.5 y su storage/auth NO
  * es compatible con los homes que escribe lee @opencode/core 2.x. `fleetproxy
- * login` necesita un binario de la MISMA línea que el core (2.2.6) para escribir
+ * login` necesita un binario de la MISMA línea que el core (2.4.1) para escribir
  * credenciales que el serve in-process entienda. En Docker ya se vendoriza en
  * la build; esto es el equivalente para desarrollo local.
  *
- * Uso: bun scripts/get-engine.ts   (override: OPENCODE_ENGINE_VERSION=2.2.7)
+ * Uso: bun scripts/get-engine.ts   (override: OPENCODE_ENGINE_VERSION=2.4.2)
  */
 import { chmod, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn } from "bun";
 
-const version = process.env.OPENCODE_ENGINE_VERSION ?? "2.2.6";
+const version = process.env.OPENCODE_ENGINE_VERSION ?? "2.4.1";
 const os = { linux: "linux", darwin: "darwin", win32: "windows" }[process.platform];
 const arch = { x64: "x64", arm64: "arm64" }[process.arch];
 if (!os || !arch) throw new Error(`plataforma no soportada: ${process.platform}/${process.arch}`);

@@ -181,7 +181,7 @@ function tryOpenBrowser(url: string): void {
 /**
  * El runtime de core loguea INFO por console.log/stdout. Para los comandos con
  * motor embebido se redirige a stderr durante toda la vida del motor; el CLI
- * imprime por la referencia original (stdout real). Core 2.2.6 no expone env
+ * imprime por la referencia original (stdout real). El core (2.4.1) no expone env
  * para bajar el nivel del sink de consola. Devuelve el restore.
  */
 function silenceCoreLogging(): { cliLog: (...args: unknown[]) => void; restore: () => void } {
@@ -320,7 +320,7 @@ async function loginCommand(args: string[], config: Config): Promise<void> {
   let engine: Engine | undefined;
   // El runtime de core loguea INFO por console.log/stdout. En modo embebido se
   // redirige a stderr durante toda la vida del motor; el CLI imprime por la
-  // referencia original (stdout real). Core 2.2.6 no expone env para bajar el
+  // referencia original (stdout real). El core (2.4.1) no expone env para bajar el
   // nivel del sink de consola.
   const stdout = process.stdout;
   const realLog = console.log.bind(console);

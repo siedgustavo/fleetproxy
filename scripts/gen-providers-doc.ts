@@ -19,7 +19,7 @@ const BEGIN = "<!-- BEGIN providers-catalogo (autogenerado por scripts/gen-provi
 const END = "<!-- END providers-catalogo -->";
 
 // El runtime de core loguea INFO por stdout/console.log: a stderr para que el
-// script sea silencioso (no hay env en core 2.2.6 para bajar ese sink).
+// script sea silencioso (no hay env en el core para bajar ese sink).
 const stdout = process.stdout;
 const realLog = console.log.bind(console);
 const fmt = (args: unknown[]) => `${args.map((a) => (typeof a === "string" ? a : Bun.inspect(a))).join(" ")}\n`;
