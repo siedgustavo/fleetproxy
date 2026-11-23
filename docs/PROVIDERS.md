@@ -58,7 +58,7 @@ generador). `—` en MÉTODOS = provider de API key por env.
 
 <!-- BEGIN providers-catalogo (autogenerado por scripts/gen-providers-doc.ts; no editar a mano) -->
 
-**332 providers** en el catálogo vivo de [models.dev](https://models.dev) (los que tienen
+**334 providers** en el catálogo vivo de [models.dev](https://models.dev) (los que tienen
 `·` en MÉTODOS se ligan con `fleetproxy login`; el resto toma su API key por env,
 p. ej. `GROQ_API_KEY`). Las conexiones activas del server que corre, en vivo:
 `fleetproxy providers` o `GET /auth/providers`.
@@ -103,7 +103,7 @@ p. ej. `GROQ_API_KEY`). Las conexiones activas del server que corre, en vivo:
 | `augure` | — |
 | `auriko` | — |
 | `autarcho` | — |
-| `azure` | — |
+| `azure` | `external:azure-cli` |
 | `bailing` | — |
 | `baseten` | — |
 | `bee` | — |
@@ -130,6 +130,7 @@ p. ej. `GROQ_API_KEY`). Las conexiones activas del server que corre, en vivo:
 | `cloudflare-workers-ai` | — |
 | `cohere` | — |
 | `commandcode` | — |
+| `concentrate` | — |
 | `confidential-ai` | — |
 | `coralbricks` | — |
 | `cortecs` | — |
@@ -290,6 +291,7 @@ p. ej. `GROQ_API_KEY`). Las conexiones activas del server que corre, en vivo:
 | `poe` | `oauth:browser` |
 | `poolside` | — |
 | `powerspring` | — |
+| `primalabs` | — |
 | `prime` | — |
 | `privatemode-ai` | — |
 | `proxystacks` | — |
